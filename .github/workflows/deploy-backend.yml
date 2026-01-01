@@ -62,9 +62,9 @@ jobs:
           echo "🏗️ Building and Starting Containers..."
           docker-compose down
           
-          # Build using proxychains to bypass geo-blocking (Iran IP)
-          echo "🛡️ Building with proxychains..."
-          proxychains docker-compose build
+          # Build using GOPROXY to bypass geo-blocking
+          echo "🛡️ Building with GOPROXY..."
+          docker-compose build --build-arg GOPROXY=https://goproxy.io,direct
           
           echo "🚀 Starting services..."
           docker-compose up -d

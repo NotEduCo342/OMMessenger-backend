@@ -3,6 +3,10 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
+# Configure Go Proxy for Iran
+ARG GOPROXY
+ENV GOPROXY=$GOPROXY
+
 # Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
