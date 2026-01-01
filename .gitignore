@@ -5,6 +5,9 @@ bin/
 *.so
 *.dylib
 
+# Default output when running `go build ./cmd/server/main.go` from repo root
+/main
+
 # Test binary
 *.test
 

@@ -4,7 +4,9 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
+	"github.com/noteduco342/OMMessenger-backend/internal/validation"
 )
 
 type MessageHandler struct {
@@ -16,46 +18,46 @@ func NewMessageHandler(messageService *service.MessageService) *MessageHandler {
 }
 
 func (h *MessageHandler) SendMessage(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(uint)
-	
-	var input service.SendMessageInput
-	if err := c.BodyParser(&input); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
 	}
 
+	var input service.SendMessageInput
+	if err := c.BodyParser(&input); err != nil {
+		return httpx.BadRequest(c, "invalid_request_body", "Invalid request body")
+	}
+
+	input.Content = validation.TrimAndLimit(input.Content, validation.MaxMessageLength())
 	if input.Content == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Content is required",
-		})
+		return httpx.BadRequest(c, "missing_content", "Content is required")
+	}
+	if input.RecipientID == nil || *input.RecipientID == 0 {
+		return httpx.BadRequest(c, "missing_recipient", "recipient_id is required")
 	}
 
 	message, err := h.messageService.SendMessage(userID, input)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to send message",
-		})
+		return httpx.Internal(c, "send_message_failed")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(message.ToResponse())
 }
 
 func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(uint)
-	
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
 	recipientIDStr := c.Query("recipient_id")
 	if recipientIDStr == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "recipient_id is required",
-		})
+		return httpx.BadRequest(c, "missing_recipient", "recipient_id is required")
 	}
 
 	recipientID, err := strconv.ParseUint(recipientIDStr, 10, 32)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid recipient_id",
-		})
+		return httpx.BadRequest(c, "invalid_recipient", "Invalid recipient_id")
 	}
 
 	limit := 50
@@ -67,9 +69,7 @@ func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
 
 	messages, err := h.messageService.GetConversation(userID, uint(recipientID), limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch messages",
-		})
+		return httpx.Internal(c, "fetch_messages_failed")
 	}
 
 	// Convert to response format

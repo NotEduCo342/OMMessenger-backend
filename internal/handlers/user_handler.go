@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
+	"github.com/noteduco342/OMMessenger-backend/internal/validation"
 )
 
 type UserHandler struct {
@@ -17,16 +19,16 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 func (h *UserHandler) CheckUsername(c *fiber.Ctx) error {
 	username := c.Query("username")
 	if username == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Username is required",
-		})
+		return httpx.BadRequest(c, "missing_username", "Username is required")
+	}
+	username = validation.NormalizeUsername(username)
+	if !validation.ValidateUsername(username) {
+		return httpx.BadRequest(c, "invalid_username", "Invalid username")
 	}
 
 	available, err := h.userService.IsUsernameAvailable(username)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to check username availability",
-		})
+		return httpx.Internal(c, "check_username_failed")
 	}
 
 	return c.JSON(fiber.Map{
@@ -36,20 +38,29 @@ func (h *UserHandler) CheckUsername(c *fiber.Ctx) error {
 
 // UpdateProfile updates user profile information
 func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(uint)
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
 
 	var input service.UpdateProfileInput
 	if err := c.BodyParser(&input); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return httpx.BadRequest(c, "invalid_request_body", "Invalid request body")
+	}
+	if input.Username != "" {
+		u := validation.NormalizeUsername(input.Username)
+		if !validation.ValidateUsername(u) {
+			return httpx.BadRequest(c, "invalid_username", "Invalid username")
+		}
+		input.Username = u
+	}
+	if input.FullName != "" {
+		input.FullName = validation.TrimAndLimit(input.FullName, 80)
 	}
 
 	user, err := h.userService.UpdateProfile(userID, input)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return httpx.BadRequest(c, "update_profile_failed", err.Error())
 	}
 
 	return c.JSON(fiber.Map{
@@ -59,13 +70,14 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 
 // GetCurrentUser gets the authenticated user's profile
 func (h *UserHandler) GetCurrentUser(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(uint)
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
 
 	user, err := h.userService.GetUserByID(userID)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "User not found",
-		})
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
 	}
 
 	return c.JSON(fiber.Map{

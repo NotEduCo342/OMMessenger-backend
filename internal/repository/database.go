@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"github.com/noteduco342/OMMessenger-backend/internal/models"
 )
 
 func InitDB() (*gorm.DB, error) {
@@ -31,6 +31,7 @@ func InitDB() (*gorm.DB, error) {
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.Message{},
+		&models.RefreshToken{},
 	); err != nil {
 		return nil, err
 	}

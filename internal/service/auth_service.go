@@ -1,22 +1,28 @@
 package service
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"github.com/noteduco342/OMMessenger-backend/internal/repository"
+	"github.com/noteduco342/OMMessenger-backend/internal/validation"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService struct {
-	userRepo *repository.UserRepository
+	userRepo         *repository.UserRepository
+	refreshTokenRepo *repository.RefreshTokenRepository
 }
 
-func NewAuthService(userRepo *repository.UserRepository) *AuthService {
-	return &AuthService{userRepo: userRepo}
+func NewAuthService(userRepo *repository.UserRepository, refreshTokenRepo *repository.RefreshTokenRepository) *AuthService {
+	return &AuthService{userRepo: userRepo, refreshTokenRepo: refreshTokenRepo}
 }
 
 type RegisterInput struct {
@@ -31,13 +37,18 @@ type LoginInput struct {
 	Password string `json:"password"`
 }
 
-type AuthResponse struct {
-	Token string               `json:"token"`
-	User  models.UserResponse  `json:"user"`
+type AuthSession struct {
+	AccessToken  string
+	RefreshToken string
+	User         models.UserResponse
 }
 
-func (s *AuthService) Register(input RegisterInput) (*AuthResponse, error) {
+func (s *AuthService) Register(input RegisterInput) (*AuthSession, error) {
 	// Check if user exists
+	input.Email = validation.NormalizeEmail(input.Email)
+	input.Username = validation.NormalizeUsername(input.Username)
+	input.FullName = validation.TrimAndLimit(input.FullName, 80)
+
 	if _, err := s.userRepo.FindByEmail(input.Email); err == nil {
 		return nil, errors.New("email already exists")
 	}
@@ -58,25 +69,22 @@ func (s *AuthService) Register(input RegisterInput) (*AuthResponse, error) {
 		Email:        input.Email,
 		PasswordHash: string(hashedPassword),
 		FullName:     input.FullName,
+		Role:         "user",
 	}
 
 	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
 	}
 
-	// Generate token
-	token, err := s.generateToken(user)
+	session, err := s.issueSession(user)
 	if err != nil {
 		return nil, err
 	}
-
-	return &AuthResponse{
-		Token: token,
-		User:  user.ToResponse(),
-	}, nil
+	return session, nil
 }
 
-func (s *AuthService) Login(input LoginInput) (*AuthResponse, error) {
+func (s *AuthService) Login(input LoginInput) (*AuthSession, error) {
+	input.Email = validation.NormalizeEmail(input.Email)
 	// Find user
 	user, err := s.userRepo.FindByEmail(input.Email)
 	if err != nil {
@@ -88,25 +96,90 @@ func (s *AuthService) Login(input LoginInput) (*AuthResponse, error) {
 		return nil, errors.New("invalid credentials")
 	}
 
-	// Generate token
-	token, err := s.generateToken(user)
+	return s.issueSession(user)
+}
+
+func (s *AuthService) RefreshSession(refreshToken string) (*AuthSession, error) {
+	if refreshToken == "" {
+		return nil, errors.New("missing refresh token")
+	}
+
+	refreshHash := hashToken(refreshToken)
+	stored, err := s.refreshTokenRepo.FindValidByHash(refreshHash)
+	if err != nil {
+		return nil, errors.New("invalid refresh token")
+	}
+
+	user, err := s.userRepo.FindByID(stored.UserID)
+	if err != nil {
+		return nil, errors.New("invalid refresh token")
+	}
+
+	// Rotate refresh token
+	if err := s.refreshTokenRepo.RevokeByHash(refreshHash); err != nil {
+		return nil, err
+	}
+
+	return s.issueSession(user)
+}
+
+func (s *AuthService) Logout(refreshToken string) error {
+	if refreshToken == "" {
+		return nil
+	}
+	return s.refreshTokenRepo.RevokeByHash(hashToken(refreshToken))
+}
+
+func (s *AuthService) issueSession(user *models.User) (*AuthSession, error) {
+	accessToken, err := s.generateAccessToken(user)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AuthResponse{
-		Token: token,
-		User:  user.ToResponse(),
+	refreshToken, refreshHash, err := generateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	refresh := &models.RefreshToken{
+		UserID:    user.ID,
+		TokenHash: refreshHash,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}
+	if err := s.refreshTokenRepo.Create(refresh); err != nil {
+		return nil, err
+	}
+
+	return &AuthSession{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User:         user.ToResponse(),
 	}, nil
 }
 
-func (s *AuthService) generateToken(user *models.User) (string, error) {
+func (s *AuthService) generateAccessToken(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
-		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(), // 7 days
+		"role":    user.Role,
+		"exp":     time.Now().Add(15 * time.Minute).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+}
+
+func generateRefreshToken() (raw string, hash string, err error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", err
+	}
+	raw = base64.RawURLEncoding.EncodeToString(b)
+	hash = hashToken(raw)
+	return raw, hash, nil
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
