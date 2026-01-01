@@ -61,7 +61,13 @@ jobs:
           # Build and Start Containers
           echo "🏗️ Building and Starting Containers..."
           docker-compose down
-          docker-compose up -d --build
+          
+          # Build using proxychains to bypass geo-blocking (Iran IP)
+          echo "🛡️ Building with proxychains..."
+          proxychains docker-compose build
+          
+          echo "🚀 Starting services..."
+          docker-compose up -d
           
           # Cleanup unused images
           docker image prune -f
