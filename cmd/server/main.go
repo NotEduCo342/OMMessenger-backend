@@ -29,9 +29,10 @@ func main() {
 	// Middleware
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: os.Getenv("ALLOWED_ORIGINS"),
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
-		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
+		AllowOrigins:     os.Getenv("ALLOWED_ORIGINS"),
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
+		AllowCredentials: true,
 	}))
 
 	// Initialize database connection
@@ -46,10 +47,12 @@ func main() {
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo)
+	userService := service.NewUserService(userRepo)
 	messageService := service.NewMessageService(messageRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(userService)
 	messageHandler := handlers.NewMessageHandler(messageService)
 	wsHandler := handlers.NewWebSocketHandler(messageService)
 
@@ -57,10 +60,12 @@ func main() {
 	api := app.Group("/api")
 	api.Post("/auth/register", authHandler.Register)
 	api.Post("/auth/login", authHandler.Login)
+	api.Get("/users/check-username", userHandler.CheckUsername) // Public endpoint for username check
 
 	// Protected routes
 	protected := api.Group("/", middleware.AuthRequired())
-	protected.Get("/users/me", authHandler.GetCurrentUser)
+	protected.Get("/users/me", userHandler.GetCurrentUser)
+	protected.Put("/users/me", userHandler.UpdateProfile)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
 

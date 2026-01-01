@@ -4,40 +4,43 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: om-postgres
+    restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: om_messenger
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - om-network
+      - om-backend-net
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: om-backend
+    restart: always
     environment:
       PORT: 8080
-      ALLOWED_ORIGINS: http://localhost:3000
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: om_messenger
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
       DB_SSLMODE: disable
-      JWT_SECRET: your_super_secret_jwt_key_change_this
+      JWT_SECRET: ${JWT_SECRET}
     ports:
-      - "8080:8080"
+      # Bind to localhost:8082 because 8080/8081 are occupied on host
+      - "127.0.0.1:8082:8080"
     depends_on:
       - postgres
     networks:
-      - om-network
+      - om-backend-net
 
 volumes:
   postgres_data:
 
 networks:
-  om-network:
+  om-backend-net:
     driver: bridge
