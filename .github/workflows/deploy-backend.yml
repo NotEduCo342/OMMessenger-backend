@@ -46,6 +46,7 @@ jobs:
         key: ${{ secrets.VPS_SSH_KEY }}
         port: ${{ secrets.VPS_PORT }}
         script: |
+          set -e
           echo "🚀 Starting Deployment on VPS..."
           
           # Navigate to project directory
@@ -58,9 +59,9 @@ jobs:
           git reset --hard origin/main
           
           # Build and Start Containers
-          echo "��️ Building and Starting Containers..."
-          docker compose down
-          docker compose up -d --build
+          echo "🏗️ Building and Starting Containers..."
+          docker-compose down
+          docker-compose up -d --build
           
           # Cleanup unused images
           docker image prune -f
