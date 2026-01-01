@@ -31,12 +31,12 @@ services:
       DB_SSLMODE: disable
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      # Bind to localhost:8082 because 8080/8081 are occupied on host
       - "127.0.0.1:8082:8080"
     depends_on:
       - postgres
     networks:
       - om-backend-net
+      - proxy-net
 
 volumes:
   postgres_data:
@@ -44,3 +44,6 @@ volumes:
 networks:
   om-backend-net:
     driver: bridge
+  proxy-net:
+    external: true
+    name: chamran-deploy_proxy-network

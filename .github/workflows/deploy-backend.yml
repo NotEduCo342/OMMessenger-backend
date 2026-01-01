@@ -1,4 +1,4 @@
-name: Deploy Backend
+name: Deploy Backend (VPS Build)
 
 on:
   push:
@@ -6,39 +6,95 @@ on:
     paths:
       - 'om-backend/**'
 
+env:
+  BRANCH_NAME: ${{ github.ref_name }}
+  COMMIT_SHA: ${{ github.sha }}
+  COMMIT_MSG: ${{ github.event.head_commit.message }}
+  AUTHOR: ${{ github.actor }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
-    - name: Build and push
-      uses: docker/build-push-action@v5
-      with:
-        context: ./om-backend
-        push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/om-backend:latest
+    # ==========================================
+    # STEP 1: Deployment Started Notification
+    # ==========================================
+    - name: 📢 Notify Deployment Started
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d message_thread_id="2" \
+          -d parse_mode="Markdown" \
+          -d text="🔄 *Backend Deployment Started*
 
-    - name: Deploy to VPS
+        📦 Project: OM Messenger Backend
+        🌿 Branch: ${{ env.BRANCH_NAME }}
+        🏷️ Environment: 🟢 Production
+
+        👤 Author: ${{ env.AUTHOR }}
+        💬 Message: ${{ env.COMMIT_MSG }}
+
+        ⏳ Connecting to VPS..."
+
+    # ==========================================
+    # STEP 2: SSH -> Pull -> Build -> Deploy
+    # ==========================================
+    - name: 🚢 Deploy to VPS
       uses: appleboy/ssh-action@master
       with:
-        host: ${{ secrets.VPS_BACKEND_HOST }}
+        host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT }}
         script: |
-          cd /path/to/om-backend
-          # Pull the latest changes
-          git pull
-          # Pull the new image
-          docker compose pull
-          # Restart services (uses existing .env file on server)
-          docker compose up -d
+          echo "🚀 Starting Deployment on VPS..."
+          
+          # Navigate to project directory
+          PROJECT_PATH="${{ secrets.PROJECT_PATH }}"
+          cd $PROJECT_PATH || { echo "❌ Directory $PROJECT_PATH not found"; exit 1; }
+          
+          # Pull latest code
+          echo "📥 Pulling latest changes..."
+          git fetch origin main
+          git reset --hard origin/main
+          
+          # Build and Start Containers
+          echo "��️ Building and Starting Containers..."
+          docker compose down
+          docker compose up -d --build
+          
+          # Cleanup unused images
+          docker image prune -f
+
+    # ==========================================
+    # STEP 3: Success Notification
+    # ==========================================
+    - name: ✅ Notify Success
+      if: success()
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d message_thread_id="2" \
+          -d parse_mode="Markdown" \
+          -d text="✅ *Backend Deployment Successful*
+
+        🚀 The application has been successfully built and deployed on the VPS.
+        
+        🔗 [View Workflow](${{ env.RUN_URL }})"
+
+    # ==========================================
+    # STEP 4: Failure Notification
+    # ==========================================
+    - name: ❌ Notify Failure
+      if: failure()
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d message_thread_id="2" \
+          -d parse_mode="Markdown" \
+          -d text="❌ *Backend Deployment Failed*
+
+        ⚠️ An error occurred during the deployment process.
+        
+        🔗 [View Logs](${{ env.RUN_URL }})"
