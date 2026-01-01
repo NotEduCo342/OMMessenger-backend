@@ -1,0 +1,99 @@
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/websocket/v2"
+	"github.com/joho/godotenv"
+	"github.com/noteduco342/OMMessenger-backend/internal/handlers"
+	"github.com/noteduco342/OMMessenger-backend/internal/middleware"
+	"github.com/noteduco342/OMMessenger-backend/internal/repository"
+	"github.com/noteduco342/OMMessenger-backend/internal/service"
+)
+
+func main() {
+	// Load environment variables
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
+	// Initialize Fiber app
+	app := fiber.New(fiber.Config{
+		AppName: "OM Messenger Backend",
+	})
+
+	// Middleware
+	app.Use(logger.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: os.Getenv("ALLOWED_ORIGINS"),
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
+	}))
+
+	// Initialize database connection
+	db, err := repository.InitDB()
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(db)
+	messageRepo := repository.NewMessageRepository(db)
+
+	// Initialize services
+	authService := service.NewAuthService(userRepo)
+	messageService := service.NewMessageService(messageRepo)
+
+	// Initialize handlers
+	authHandler := handlers.NewAuthHandler(authService)
+	messageHandler := handlers.NewMessageHandler(messageService)
+	wsHandler := handlers.NewWebSocketHandler(messageService)
+
+	// Public routes
+	api := app.Group("/api")
+	api.Post("/auth/register", authHandler.Register)
+	api.Post("/auth/login", authHandler.Login)
+
+	// Protected routes
+	protected := api.Group("/", middleware.AuthRequired())
+	protected.Get("/users/me", authHandler.GetCurrentUser)
+	protected.Get("/messages", messageHandler.GetMessages)
+	protected.Post("/messages", messageHandler.SendMessage)
+
+	// WebSocket route (websocket upgrade needs special handling)
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		// Check authentication first
+		if err := middleware.AuthRequired()(c); err != nil {
+			return err
+		}
+		// Upgrade to WebSocket
+		if websocket.IsWebSocketUpgrade(c) {
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
+	app.Get("/ws", websocket.New(wsHandler.HandleWebSocket))
+
+	// Health check
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status":  "ok",
+			"message": "OM Messenger is running",
+		})
+	})
+
+	// Start server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server starting on port %s...", port)
+	if err := app.Listen(":" + port); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
+}
