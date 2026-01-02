@@ -6,10 +6,10 @@ import (
 )
 
 type MessageService struct {
-	messageRepo *repository.MessageRepository
+	messageRepo repository.MessageRepositoryInterface
 }
 
-func NewMessageService(messageRepo *repository.MessageRepository) *MessageService {
+func NewMessageService(messageRepo repository.MessageRepositoryInterface) *MessageService {
 	return &MessageService{messageRepo: messageRepo}
 }
 
