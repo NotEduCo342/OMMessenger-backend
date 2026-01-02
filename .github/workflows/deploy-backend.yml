@@ -1,13 +1,14 @@
 name: Deploy Backend (VPS Build)
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [ main ]
 
 env:
-  VERSION: ${{ github.event.release.tag_name }}
-  TARGET: ${{ github.event.release.target_commitish }}
-  AUTHOR: ${{ github.event.release.author.login }}
+  BRANCH_NAME: ${{ github.ref_name }}
+  COMMIT_SHA: ${{ github.sha }}
+  COMMIT_MSG: ${{ github.event.head_commit.message }}
+  AUTHOR: ${{ github.actor }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
@@ -23,16 +24,16 @@ jobs:
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -d message_thread_id="2" \
           -d parse_mode="Markdown" \
-          -d text="🚀 *Backend Deployment Started*
+          -d text="🔄 *Backend Deployment Started*
 
-        📦 *Project:* OM Messenger Backend  
-        🌍 *Environment:* Production  
-        🏷️ *Version:* ${{ env.VERSION }}  
-        🧩 *Target:* ${{ env.TARGET }}  
-        👤 *Triggered by:* ${{ env.AUTHOR }}
+        📦 Project: OM Messenger Backend
+        🌿 Branch: ${{ env.BRANCH_NAME }}
+        🏷️ Environment: 🟢 Production
 
-        🖥️ *Runner:* GitHub Actions  
-        ⏳ *Status:* Connecting to VPS..."
+        👤 Author: ${{ env.AUTHOR }}
+        💬 Message: ${{ env.COMMIT_MSG }}
+
+        ⏳ Connecting to VPS..."
 
     # ==========================================
     # STEP 2: SSH -> Pull -> Build -> Deploy
