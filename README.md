@@ -36,3 +36,13 @@ This repo currently implements cookie-based auth suitable for intranet deploymen
 **Limits**
 - `PASSWORD_MIN_LENGTH` (default: `10`)
 - `MAX_MESSAGE_LENGTH` (default: `4000`)
+
+## How to build
+### Windows:
+```shell
+go build -o bin/server.exe -v .\cmd\server
+```
+### Linux:
+```shell
+go build -o bin/server -v ./cmd/server
+```
