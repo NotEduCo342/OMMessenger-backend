@@ -7,9 +7,20 @@ import (
 var typeRegistry = map[string]reflect.Type{}
 
 func init() {
-	RegisterType(&MessageStatus{})
+	// Register all message types
+	RegisterType(&MessageSync{})
+	RegisterType(&MessageChat{})
+	RegisterType(&MessageAck{})
+	RegisterType(&MessageTyping{})
+	RegisterType(&MessageRead{})
+	RegisterType(&MessageDelivery{})
 }
 
 func RegisterType(msg Message) {
 	typeRegistry[msg.GetType()] = reflect.TypeOf(msg).Elem()
+}
+
+// GetTypeRegistry returns the type registry for testing
+func GetTypeRegistry() map[string]reflect.Type {
+	return typeRegistry
 }

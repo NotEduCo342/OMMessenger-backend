@@ -80,3 +80,22 @@ func (s *UserService) UpdateProfile(userID uint, input UpdateProfileInput) (*mod
 func (s *UserService) GetUserByID(userID uint) (*models.User, error) {
 	return s.userRepo.FindByID(userID)
 }
+
+func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
+	username = strings.TrimSpace(strings.ToLower(username))
+	if username == "" {
+		return nil, errors.New("username cannot be empty")
+	}
+	return s.userRepo.FindByUsername(username)
+}
+
+func (s *UserService) SearchUsers(query string, limit int) ([]models.User, error) {
+	query = strings.TrimSpace(strings.ToLower(query))
+	if query == "" {
+		return []models.User{}, nil
+	}
+	if limit == 0 || limit > 50 {
+		limit = 20
+	}
+	return s.userRepo.SearchUsers(query, limit)
+}

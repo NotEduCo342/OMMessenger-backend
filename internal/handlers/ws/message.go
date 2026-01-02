@@ -6,16 +6,36 @@ import (
 	"reflect"
 
 	"github.com/gofiber/websocket/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/service"
 )
 
-type Message interface {
-	GetType() string
-	Process(*websocket.Conn)
+// MessageContext provides all dependencies needed for message processing
+type MessageContext struct {
+	UserID         uint
+	Conn           *websocket.Conn
+	Hub            *Hub
+	MessageService *service.MessageService
+	UserService    *service.UserService
 }
 
+// Message interface for all WebSocket message types
+type Message interface {
+	GetType() string
+	Process(ctx *MessageContext) error
+}
+
+// SerializedMessage is the wire format wrapper
 type SerializedMessage struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
+}
+
+// ErrorResponse is sent when message processing fails
+type ErrorResponse struct {
+	Type    string `json:"type"`
+	Error   string `json:"error"`
+	Code    string `json:"code"`
+	Details string `json:"details,omitempty"`
 }
 
 func ToJson(msg Message) ([]byte, error) {
@@ -36,4 +56,13 @@ func CreateMessage(msgType string, typeRegistry map[string]reflect.Type) (Messag
 	return instance.(Message), nil
 }
 
-// Remember to add new messages to the type registry too
+// SendError sends an error response to the client
+func SendError(conn *websocket.Conn, code, message, details string) error {
+	errResp := ErrorResponse{
+		Type:    "error",
+		Error:   message,
+		Code:    code,
+		Details: details,
+	}
+	return conn.WriteJSON(errResp)
+}

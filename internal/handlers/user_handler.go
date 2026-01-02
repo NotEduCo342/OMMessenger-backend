@@ -84,3 +84,51 @@ func (h *UserHandler) GetCurrentUser(c *fiber.Ctx) error {
 		"user": user.ToResponse(),
 	})
 }
+
+// SearchUsers searches for users by username or full name
+func (h *UserHandler) SearchUsers(c *fiber.Ctx) error {
+	query := c.Query("q")
+	if query == "" {
+		return httpx.BadRequest(c, "missing_query", "Search query is required")
+	}
+
+	limit := 20
+	if limitStr := c.Query("limit"); limitStr != "" {
+		l := c.QueryInt("limit", 20)
+		if l > 0 && l <= 50 {
+			limit = l
+		}
+	}
+
+	users, err := h.userService.SearchUsers(query, limit)
+	if err != nil {
+		return httpx.Internal(c, "search_users_failed")
+	}
+
+	// Convert to response format
+	responses := make([]interface{}, len(users))
+	for i, user := range users {
+		responses[i] = user.ToResponse()
+	}
+
+	return c.JSON(fiber.Map{
+		"users": responses,
+	})
+}
+
+// GetUserByUsername gets a user's public profile by username
+func (h *UserHandler) GetUserByUsername(c *fiber.Ctx) error {
+	username := c.Params("username")
+	if username == "" {
+		return httpx.BadRequest(c, "missing_username", "Username is required")
+	}
+
+	user, err := h.userService.GetUserByUsername(username)
+	if err != nil {
+		return httpx.BadRequest(c, "user_not_found", "User not found")
+	}
+
+	return c.JSON(fiber.Map{
+		"user": user.ToResponse(),
+	})
+}

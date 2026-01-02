@@ -65,7 +65,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	messageHandler := handlers.NewMessageHandler(messageService)
-	wsHandler := handlers.NewWebSocketHandler(messageService)
+	wsHandler := handlers.NewWebSocketHandler(messageService, userService)
 
 	// Public routes
 	api := app.Group("/api", middleware.OriginAllowed())
@@ -84,6 +84,8 @@ func main() {
 	protected := api.Group("/", middleware.AuthRequired(), middleware.CSRFRequired())
 	protected.Get("/users/me", userHandler.GetCurrentUser)
 	protected.Put("/users/me", userHandler.UpdateProfile)
+	protected.Get("/users/search", userHandler.SearchUsers)
+	protected.Get("/users/:username", userHandler.GetUserByUsername)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
 
