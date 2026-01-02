@@ -76,7 +76,7 @@ func main() {
 	auth.Get("/csrf", authHandler.CSRF)
 	auth.Post("/register", authHandler.Register)
 	auth.Post("/login", authHandler.Login)
-	auth.Post("/refresh", middleware.CSRFRequired(), authHandler.Refresh)
+	auth.Post("/refresh", authHandler.Refresh) // No CSRF required - protected by HttpOnly refresh token
 	auth.Post("/logout", middleware.CSRFRequired(), authHandler.Logout)
 	api.Get("/users/check-username", userHandler.CheckUsername) // Public endpoint for username check
 
