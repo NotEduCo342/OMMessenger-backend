@@ -90,20 +90,18 @@ func main() {
 	protected.Post("/messages", messageHandler.SendMessage)
 
 	// WebSocket route (websocket upgrade needs special handling)
-	app.Use("/ws", func(c *fiber.Ctx) error {
-		if err := middleware.OriginAllowed()(c); err != nil {
-			return err
-		}
-		// Check authentication first
-		if err := middleware.AuthRequired()(c); err != nil {
-			return err
-		}
-		// Upgrade to WebSocket
-		if websocket.IsWebSocketUpgrade(c) {
-			return c.Next()
-		}
-		return fiber.ErrUpgradeRequired
-	})
+	app.Use(
+		"/ws",
+		middleware.OriginAllowed(),
+		middleware.AuthRequired(),
+		func(c *fiber.Ctx) error {
+			// Upgrade to WebSocket
+			if websocket.IsWebSocketUpgrade(c) {
+				return c.Next()
+			}
+			return fiber.ErrUpgradeRequired
+		},
+	)
 	app.Get("/ws", websocket.New(wsHandler.HandleWebSocket))
 
 	// Health check
