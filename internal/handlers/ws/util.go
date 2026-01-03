@@ -1,6 +1,11 @@
 package ws
 
-import "encoding/json"
+import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"io"
+)
 
 func Serialize(msg Message) ([]byte, error) {
 	wrapper := SerializedMessage{
@@ -35,4 +40,20 @@ func DeserializeSerializedMessage(wrapper *SerializedMessage) (Message, error) {
 	}
 
 	return msg, nil
+}
+
+// DecompressMessage decompresses a gzip-compressed message
+func DecompressMessage(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return decompressed, nil
 }

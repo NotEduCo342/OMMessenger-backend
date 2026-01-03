@@ -122,13 +122,18 @@ func (h *Hub) IsOnline(userID uint) bool {
 
 // SendToUser sends data to a specific user with optional compression
 func (h *Hub) SendToUser(userID uint, data interface{}) error {
+	return h.SendToUserWithID(userID, 0, data)
+}
+
+// SendToUserWithID sends data with explicit message ID for queueing
+func (h *Hub) SendToUserWithID(userID uint, messageID uint, data interface{}) error {
 	h.clientsMux.RLock()
 	clientConn, exists := h.clients[userID]
 	h.clientsMux.RUnlock()
 
 	if !exists {
 		// User offline, queue message for later delivery
-		return h.queueMessage(userID, data, 0)
+		return h.queueMessage(userID, messageID, data, 0)
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -154,31 +159,35 @@ func (h *Hub) SendToUser(userID uint, data interface{}) error {
 		log.Printf("Error sending message to user %d: %v", userID, err)
 		// Connection may be dead, unregister and queue message
 		h.Unregister(userID)
-		return h.queueMessage(userID, data, 0)
+		return h.queueMessage(userID, messageID, data, 0)
 	}
 
 	return nil
 }
 
 // queueMessage stores a message for offline or failed delivery
-func (h *Hub) queueMessage(userID uint, data interface{}, priority int) error {
+func (h *Hub) queueMessage(userID uint, messageID uint, data interface{}, priority int) error {
 	if h.pendingMessageRepo == nil {
 		return nil // No repository configured, skip queueing
+	}
+
+	// Don't queue ephemeral messages (typing, ping, etc)
+	if dataMap, ok := data.(map[string]interface{}); ok {
+		msgType, _ := dataMap["type"].(string)
+		if msgType == "typing" || msgType == "ping" || msgType == "pong" {
+			return nil // Skip queueing ephemeral messages
+		}
+	}
+
+	// Skip if no valid message ID (can't satisfy foreign key constraint)
+	if messageID == 0 {
+		log.Printf("⚠️ Skipping queue for user %d: no valid message_id", userID)
+		return nil
 	}
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return err
-	}
-
-	// Extract message ID if present in the data
-	var messageID uint
-	if dataMap, ok := data.(map[string]interface{}); ok {
-		if msg, ok := dataMap["message"].(map[string]interface{}); ok {
-			if id, ok := msg["id"].(uint); ok {
-				messageID = id
-			}
-		}
 	}
 
 	return h.pendingMessageRepo.Enqueue(userID, messageID, string(jsonData), priority)
@@ -383,11 +392,26 @@ func (h *Hub) retryWorker() {
 
 // pingRoutine sends periodic ping messages to keep connection alive
 func (h *Hub) pingRoutine(client *ClientConnection) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Ping routine recovered from panic for user %d: %v", client.UserID, r)
+		}
+	}()
+
 	for {
 		select {
 		case <-client.CloseChan:
 			return
 		case <-client.PingTicker.C:
+			// Check if connection is still valid
+			h.clientsMux.RLock()
+			_, exists := h.clients[client.UserID]
+			h.clientsMux.RUnlock()
+
+			if !exists {
+				return
+			}
+
 			if err := client.Conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
 				log.Printf("Ping failed for user %d: %v", client.UserID, err)
 				h.Unregister(client.UserID)

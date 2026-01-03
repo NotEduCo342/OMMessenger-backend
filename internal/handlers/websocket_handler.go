@@ -94,10 +94,27 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 
 	// Handle incoming messages
 	for {
-		_, messageBytes, err := c.ReadMessage()
+		messageType, messageBytes, err := c.ReadMessage()
 		if err != nil {
 			log.Printf("Error reading message from user %d: %v", userID, err)
 			break
+		}
+
+		// Debug: log message type and size
+		log.Printf("📨 Received from user %d: type=%d size=%d bytes", userID, messageType, len(messageBytes))
+		log.Printf("📄 FULL MESSAGE: %s", string(messageBytes))
+
+		// Decompress if binary message (gzip compressed)
+		if messageType == websocket.BinaryMessage {
+			log.Printf("🗜️ Decompressing binary message (%d bytes)", len(messageBytes))
+			decompressed, err := ws.DecompressMessage(messageBytes)
+			if err != nil {
+				log.Printf("Error decompressing message from user %d: %v", userID, err)
+				ws.SendError(c, "decompression_failed", "Failed to decompress message", err.Error())
+				continue
+			}
+			log.Printf("✅ Decompressed: %d → %d bytes", len(messageBytes), len(decompressed))
+			messageBytes = decompressed
 		}
 
 		// Deserialize message

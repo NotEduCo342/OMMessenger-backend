@@ -28,7 +28,13 @@ func AuthRequired() fiber.Handler {
 			}
 			tokenString = parts[1]
 		} else {
+			// Check cookie
 			tokenString = c.Cookies("om_access")
+		}
+
+		// For WebSocket connections, also check query parameter
+		if tokenString == "" {
+			tokenString = c.Query("token")
 		}
 
 		if tokenString == "" {

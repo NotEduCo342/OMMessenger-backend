@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 
@@ -84,6 +85,8 @@ func (msg *MessageChat) GetType() string {
 }
 
 func (msg *MessageChat) Process(ctx *MessageContext) error {
+	log.Printf("💬 Processing chat message from user %d: client_id=%s, recipient=%v", ctx.UserID, msg.ClientID, msg.RecipientID)
+
 	if msg.ClientID == "" {
 		return SendError(ctx.Conn, "missing_client_id", "client_id is required", "")
 	}
@@ -91,20 +94,28 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	// Check for duplicate using ClientID
 	existing, err := ctx.MessageService.GetByClientID(msg.ClientID, ctx.UserID)
 	if err == nil && existing != nil {
-		// Already processed, send ACK again
-		return ctx.Conn.WriteJSON(MessageAck{
+		// Already processed, send ACK again with proper wrapper
+		log.Printf("✅ Duplicate message, re-sending ACK for server_id=%d", existing.ID)
+		ackData, _ := json.Marshal(MessageAck{
 			ClientID: msg.ClientID,
 			ServerID: existing.ID,
 			Status:   string(existing.Status),
 		})
+		ackWrapper := SerializedMessage{
+			Type:    MsgAck,
+			Payload: json.RawMessage(ackData),
+		}
+		return ctx.Conn.WriteJSON(ackWrapper)
 	}
 
 	// Save message to database
+	log.Printf("💾 Saving new message to database...")
 	message, err := ctx.MessageService.CreateWithClientID(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content)
 	if err != nil {
-		log.Printf("Error saving message: %v", err)
+		log.Printf("❌ Error saving message: %v", err)
 		return SendError(ctx.Conn, "save_failed", "Failed to save message", err.Error())
 	}
+	log.Printf("✅ Message saved with ID=%d", message.ID)
 
 	// Invalidate conversation cache for both sender and recipient
 	if msg.RecipientID != nil && ctx.MessageCache != nil {
@@ -114,19 +125,27 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 		_ = ctx.MessageCache.InvalidateUnreadCount(*msg.RecipientID, ctx.UserID)
 	}
 
-	// Send ACK to sender
-	ack := MessageAck{
+	// Send ACK to sender with proper wrapper
+	log.Printf("📤 Sending ACK to sender...")
+	ackData, _ := json.Marshal(MessageAck{
 		ClientID: msg.ClientID,
 		ServerID: message.ID,
 		Status:   "sent",
+	})
+	ackWrapper := SerializedMessage{
+		Type:    MsgAck,
+		Payload: json.RawMessage(ackData), // Cast to RawMessage
 	}
-	if err := ctx.Conn.WriteJSON(ack); err != nil {
+	if err := ctx.Conn.WriteJSON(ackWrapper); err != nil {
+		log.Printf("❌ Error sending ACK: %v", err)
 		return err
 	}
+	log.Printf("✅ ACK sent successfully")
 
 	// Forward to recipient if online
 	if msg.RecipientID != nil {
-		ctx.Hub.SendToUser(*msg.RecipientID, map[string]interface{}{
+		log.Printf("📨 Forwarding message to recipient %d...", *msg.RecipientID)
+		ctx.Hub.SendToUserWithID(*msg.RecipientID, message.ID, map[string]interface{}{
 			"type":    "message",
 			"message": message.ToResponse(),
 		})
