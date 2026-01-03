@@ -30,3 +30,14 @@ type RefreshTokenRepositoryInterface interface {
 	FindValidByHash(tokenHash string) (*models.RefreshToken, error)
 	RevokeByHash(tokenHash string) error
 }
+
+// GroupRepositoryInterface defines the contract for group repository operations
+type GroupRepositoryInterface interface {
+	Create(group *models.Group) error
+	FindByID(id uint) (*models.Group, error)
+	AddMember(groupID, userID uint, role models.GroupRole) error
+	RemoveMember(groupID, userID uint) error
+	GetMembers(groupID uint) ([]models.User, error)
+	IsMember(groupID, userID uint) (bool, error)
+	GetUserGroups(userID uint) ([]models.Group, error)
+}

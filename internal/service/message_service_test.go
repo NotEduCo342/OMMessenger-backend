@@ -293,6 +293,7 @@ func TestCreateWithClientID(t *testing.T) {
 		senderID    uint
 		clientID    string
 		recipientID *uint
+		groupID     *uint
 		content     string
 		shouldErr   bool
 	}{
@@ -301,6 +302,7 @@ func TestCreateWithClientID(t *testing.T) {
 			senderID:    1,
 			clientID:    "client-123",
 			recipientID: &[]uint{2}[0],
+			groupID:     nil,
 			content:     "Test message",
 			shouldErr:   false,
 		},
@@ -308,7 +310,7 @@ func TestCreateWithClientID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := messageService.CreateWithClientID(tt.senderID, tt.clientID, tt.recipientID, tt.content)
+			result, err := messageService.CreateWithClientID(tt.senderID, tt.clientID, tt.recipientID, tt.groupID, tt.content)
 			if (err != nil) != tt.shouldErr {
 				t.Errorf("CreateWithClientID error = %v, wantErr %v", err, tt.shouldErr)
 			}

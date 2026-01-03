@@ -16,6 +16,7 @@ type MessageContext struct {
 	Hub            *Hub
 	MessageService *service.MessageService
 	UserService    *service.UserService
+	GroupService   *service.GroupService
 }
 
 // Message interface for all WebSocket message types

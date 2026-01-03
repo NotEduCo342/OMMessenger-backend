@@ -99,3 +99,11 @@ func (s *UserService) SearchUsers(query string, limit int) ([]models.User, error
 	}
 	return s.userRepo.SearchUsers(query, limit)
 }
+
+func (s *UserService) SetUserOnline(userID uint) error {
+	return s.userRepo.UpdateOnlineStatus(userID, true)
+}
+
+func (s *UserService) SetUserOffline(userID uint) error {
+	return s.userRepo.UpdateOnlineStatus(userID, false)
+}

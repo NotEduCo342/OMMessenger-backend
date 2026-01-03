@@ -51,7 +51,9 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	log.Printf("event=register user_id=%d email=%s ip=%s rid=%s", session.User.ID, session.User.Email, c.IP(), c.Locals("requestid"))
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"user": session.User,
+		"user":          session.User,
+		"access_token":  session.AccessToken,
+		"refresh_token": session.RefreshToken,
 	})
 }
 
@@ -75,7 +77,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	log.Printf("event=login user_id=%d email=%s ip=%s rid=%s", session.User.ID, session.User.Email, c.IP(), c.Locals("requestid"))
 
 	return c.JSON(fiber.Map{
-		"user": session.User,
+		"user":          session.User,
+		"access_token":  session.AccessToken,
+		"refresh_token": session.RefreshToken,
 	})
 }
 

@@ -25,7 +25,7 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 
 func (r *UserRepository) FindByUsername(username string) (*models.User, error) {
 	var user models.User
-	err := r.db.Where("username = ?", username).First(&user).Error
+	err := r.db.Where("LOWER(username) = LOWER(?)", username).First(&user).Error
 	return &user, err
 }
 
@@ -40,7 +40,15 @@ func (r *UserRepository) Update(user *models.User) error {
 }
 
 func (r *UserRepository) UpdateOnlineStatus(userID uint, isOnline bool) error {
-	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("is_online", isOnline).Error
+	updates := map[string]interface{}{
+		"is_online": isOnline,
+	}
+
+	if !isOnline {
+		updates["last_seen"] = gorm.Expr("NOW()")
+	}
+
+	return r.db.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error
 }
 
 func (r *UserRepository) SearchUsers(query string, limit int) ([]models.User, error) {

@@ -57,11 +57,12 @@ func (s *MessageService) MarkAsRead(messageID uint) error {
 }
 
 // CreateWithClientID creates a message with client ID for deduplication
-func (s *MessageService) CreateWithClientID(senderID uint, clientID string, recipientID *uint, content string) (*models.Message, error) {
+func (s *MessageService) CreateWithClientID(senderID uint, clientID string, recipientID *uint, groupID *uint, content string) (*models.Message, error) {
 	message := &models.Message{
 		ClientID:    clientID,
 		SenderID:    senderID,
 		RecipientID: recipientID,
+		GroupID:     groupID,
 		Content:     content,
 		MessageType: models.TextMessage,
 		Status:      models.StatusSent,

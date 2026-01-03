@@ -55,17 +55,20 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	messageRepo := repository.NewMessageRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
+	groupRepo := repository.NewGroupRepository(db)
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, refreshTokenRepo)
 	userService := service.NewUserService(userRepo)
 	messageService := service.NewMessageService(messageRepo)
+	groupService := service.NewGroupService(groupRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	messageHandler := handlers.NewMessageHandler(messageService)
-	wsHandler := handlers.NewWebSocketHandler(messageService, userService)
+	groupHandler := handlers.NewGroupHandler(groupService)
+	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService)
 
 	// Public routes
 	api := app.Group("/api", middleware.OriginAllowed())
@@ -88,6 +91,13 @@ func main() {
 	protected.Get("/users/:username", userHandler.GetUserByUsername)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
+
+	// Group routes
+	protected.Post("/groups", groupHandler.CreateGroup)
+	protected.Get("/groups", groupHandler.GetMyGroups)
+	protected.Post("/groups/:id/join", groupHandler.JoinGroup)
+	protected.Post("/groups/:id/leave", groupHandler.LeaveGroup)
+	protected.Get("/groups/:id/members", groupHandler.GetGroupMembers)
 
 	// WebSocket route (websocket upgrade needs special handling)
 	app.Use(

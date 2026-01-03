@@ -33,10 +33,11 @@ type Message struct {
 	// Client-side tracking
 	ClientID string `gorm:"type:varchar(36);uniqueIndex:idx_client_sender;not null" json:"client_id"` // UUID for deduplication
 
-	SenderID    uint  `gorm:"not null;uniqueIndex:idx_client_sender;index" json:"sender_id"`
-	Sender      User  `gorm:"foreignKey:SenderID" json:"sender"`
-	RecipientID *uint `gorm:"index" json:"recipient_id"` // null for group messages
-	GroupID     *uint `gorm:"index" json:"group_id"`     // null for direct messages
+	SenderID    uint   `gorm:"not null;uniqueIndex:idx_client_sender;index" json:"sender_id"`
+	Sender      User   `gorm:"foreignKey:SenderID" json:"sender"`
+	RecipientID *uint  `gorm:"index" json:"recipient_id"` // null for group messages
+	GroupID     *uint  `gorm:"index" json:"group_id"`     // null for direct messages
+	Group       *Group `gorm:"foreignKey:GroupID" json:"group,omitempty"`
 
 	Content     string      `gorm:"type:text;not null" json:"content"`
 	MessageType MessageType `gorm:"type:varchar(20);default:'text'" json:"message_type"`

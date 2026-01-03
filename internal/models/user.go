@@ -21,7 +21,8 @@ type User struct {
 	IsOnline     bool       `gorm:"default:false" json:"is_online"`
 	LastSeen     *time.Time `json:"last_seen"`
 
-	Messages []Message `gorm:"foreignKey:SenderID" json:"-"`
+	Messages     []Message     `gorm:"foreignKey:SenderID" json:"-"`
+	GroupMembers []GroupMember `gorm:"foreignKey:UserID" json:"-"`
 }
 
 type UserResponse struct {

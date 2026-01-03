@@ -11,13 +11,15 @@ import (
 type WebSocketHandler struct {
 	messageService *service.MessageService
 	userService    *service.UserService
+	groupService   *service.GroupService
 	hub            *ws.Hub
 }
 
-func NewWebSocketHandler(messageService *service.MessageService, userService *service.UserService) *WebSocketHandler {
+func NewWebSocketHandler(messageService *service.MessageService, userService *service.UserService, groupService *service.GroupService) *WebSocketHandler {
 	return &WebSocketHandler{
 		messageService: messageService,
 		userService:    userService,
+		groupService:   groupService,
 		hub:            ws.NewHub(),
 	}
 }
@@ -27,7 +29,23 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 
 	// Register client in hub
 	h.hub.Register(userID, c)
-	defer h.hub.Unregister(userID)
+
+	// Update user status to online
+	go func() {
+		if err := h.userService.SetUserOnline(userID); err != nil {
+			log.Printf("Failed to set user %d online: %v", userID, err)
+		}
+	}()
+
+	defer func() {
+		h.hub.Unregister(userID)
+		// Update user status to offline
+		go func() {
+			if err := h.userService.SetUserOffline(userID); err != nil {
+				log.Printf("Failed to set user %d offline: %v", userID, err)
+			}
+		}()
+	}()
 
 	log.Printf("User %d connected via WebSocket", userID)
 
@@ -38,6 +56,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 		Hub:            h.hub,
 		MessageService: h.messageService,
 		UserService:    h.userService,
+		GroupService:   h.groupService,
 	}
 
 	// Handle incoming messages

@@ -100,7 +100,7 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	}
 
 	// Save message to database
-	message, err := ctx.MessageService.CreateWithClientID(ctx.UserID, msg.ClientID, msg.RecipientID, msg.Content)
+	message, err := ctx.MessageService.CreateWithClientID(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content)
 	if err != nil {
 		log.Printf("Error saving message: %v", err)
 		return SendError(ctx.Conn, "save_failed", "Failed to save message", err.Error())
@@ -122,6 +122,21 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 			"type":    "message",
 			"message": message.ToResponse(),
 		})
+	} else if msg.GroupID != nil {
+		// Broadcast to group members
+		members, err := ctx.GroupService.GetGroupMembers(*msg.GroupID)
+		if err == nil {
+			var memberIDs []uint
+			for _, member := range members {
+				if member.ID != ctx.UserID {
+					memberIDs = append(memberIDs, member.ID)
+				}
+			}
+			ctx.Hub.BroadcastToUsers(memberIDs, map[string]interface{}{
+				"type":    "message",
+				"message": message.ToResponse(),
+			})
+		}
 	}
 
 	return nil
