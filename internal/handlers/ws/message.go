@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/gofiber/websocket/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/cache"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
 )
 
@@ -17,6 +18,8 @@ type MessageContext struct {
 	MessageService *service.MessageService
 	UserService    *service.UserService
 	GroupService   *service.GroupService
+	MessageCache   *cache.MessageCache
+	UserCache      *cache.UserCache
 }
 
 // Message interface for all WebSocket message types

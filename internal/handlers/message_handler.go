@@ -4,17 +4,23 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/cache"
 	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
+	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
 	"github.com/noteduco342/OMMessenger-backend/internal/validation"
 )
 
 type MessageHandler struct {
 	messageService *service.MessageService
+	messageCache   *cache.MessageCache
 }
 
-func NewMessageHandler(messageService *service.MessageService) *MessageHandler {
-	return &MessageHandler{messageService: messageService}
+func NewMessageHandler(messageService *service.MessageService, messageCache *cache.MessageCache) *MessageHandler {
+	return &MessageHandler{
+		messageService: messageService,
+		messageCache:   messageCache,
+	}
 }
 
 func (h *MessageHandler) SendMessage(c *fiber.Ctx) error {
@@ -62,14 +68,40 @@ func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
 
 	limit := 50
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
 		}
 	}
 
-	messages, err := h.messageService.GetConversation(userID, uint(recipientID), limit)
-	if err != nil {
-		return httpx.Internal(c, "fetch_messages_failed")
+	// Check for cursor-based pagination
+	var messages []models.Message
+	if cursorStr := c.Query("cursor"); cursorStr != "" {
+		cursor, err := strconv.ParseUint(cursorStr, 10, 32)
+		if err != nil {
+			return httpx.BadRequest(c, "invalid_cursor", "Invalid cursor")
+		}
+		messages, err = h.messageService.GetConversationCursor(userID, uint(recipientID), uint(cursor), limit)
+		if err != nil {
+			return httpx.Internal(c, "fetch_messages_failed")
+		}
+	} else {
+		// Try cache first (only for non-cursor requests)
+		if cached, ok := h.messageCache.GetConversation(userID, uint(recipientID)); ok && len(cached) > 0 {
+			messages = cached
+			// Limit cached results
+			if len(messages) > limit {
+				messages = messages[:limit]
+			}
+		} else {
+			messages, err = h.messageService.GetConversation(userID, uint(recipientID), limit)
+			if err != nil {
+				return httpx.Internal(c, "fetch_messages_failed")
+			}
+			// Cache the result
+			if len(messages) > 0 {
+				_ = h.messageCache.SetConversation(userID, uint(recipientID), messages)
+			}
+		}
 	}
 
 	// Convert to response format
@@ -78,7 +110,15 @@ func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
 		responses[i] = msg.ToResponse()
 	}
 
-	return c.JSON(fiber.Map{
+	// Add cursor info for pagination
+	result := fiber.Map{
 		"messages": responses,
-	})
+		"count":    len(messages),
+	}
+
+	if len(messages) > 0 {
+		result["next_cursor"] = messages[0].ID // Oldest message ID for loading older messages
+	}
+
+	return c.JSON(result)
 }

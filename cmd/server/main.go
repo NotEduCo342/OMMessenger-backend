@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
+	"github.com/noteduco342/OMMessenger-backend/internal/cache"
 	"github.com/noteduco342/OMMessenger-backend/internal/handlers"
 	"github.com/noteduco342/OMMessenger-backend/internal/middleware"
 	"github.com/noteduco342/OMMessenger-backend/internal/repository"
@@ -51,11 +53,36 @@ func main() {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
+	// Initialize Redis cache
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	redisDB := 0
+	if dbStr := os.Getenv("REDIS_DB"); dbStr != "" {
+		if parsedDB, err := strconv.Atoi(dbStr); err == nil {
+			redisDB = parsedDB
+		}
+	}
+
+	redisCache := cache.NewRedisCache(redisAddr, redisPassword, redisDB)
+	if err := redisCache.Ping(); err != nil {
+		log.Printf("WARNING: Redis connection failed: %v. Running without cache.", err)
+		redisCache = nil
+	} else {
+		log.Println("Redis cache connected successfully")
+	}
+
+	messageCache := cache.NewMessageCache(redisCache)
+	userCache := cache.NewUserCache(redisCache)
+
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	messageRepo := repository.NewMessageRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 	groupRepo := repository.NewGroupRepository(db)
+	pendingMessageRepo := repository.NewPendingMessageRepository(db)
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, refreshTokenRepo)
@@ -66,9 +93,9 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
-	messageHandler := handlers.NewMessageHandler(messageService)
+	messageHandler := handlers.NewMessageHandler(messageService, messageCache)
 	groupHandler := handlers.NewGroupHandler(groupService)
-	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService)
+	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService, pendingMessageRepo, userCache, messageCache)
 
 	// Public routes
 	api := app.Group("/api", middleware.OriginAllowed())

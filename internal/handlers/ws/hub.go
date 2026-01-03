@@ -1,37 +1,111 @@
 package ws
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gofiber/websocket/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/repository"
 )
+
+// ClientConnection wraps a WebSocket connection with metadata
+type ClientConnection struct {
+	Conn         *websocket.Conn
+	UserID       uint
+	LastPong     time.Time
+	SupportsGzip bool
+	PingTicker   *time.Ticker
+	CloseChan    chan struct{}
+}
 
 // Hub manages all active WebSocket connections
 type Hub struct {
-	clients    map[uint]*websocket.Conn
-	clientsMux sync.RWMutex
+	clients            map[uint]*ClientConnection
+	clientsMux         sync.RWMutex
+	pendingMessageRepo repository.PendingMessageRepositoryInterface
+	deliveryRetryQueue chan *DeliveryAttempt
+	maxRetries         int
+	baseRetryDelay     time.Duration
+	pingInterval       time.Duration
+	pongTimeout        time.Duration
+}
+
+// DeliveryAttempt represents a message delivery attempt
+type DeliveryAttempt struct {
+	UserID       uint
+	PendingMsgID uint
+	Payload      string
+	Attempts     int
+	Priority     int
 }
 
 // NewHub creates a new Hub instance
-func NewHub() *Hub {
-	return &Hub{
-		clients: make(map[uint]*websocket.Conn),
+func NewHub(pendingRepo repository.PendingMessageRepositoryInterface) *Hub {
+	hub := &Hub{
+		clients:            make(map[uint]*ClientConnection),
+		pendingMessageRepo: pendingRepo,
+		deliveryRetryQueue: make(chan *DeliveryAttempt, 1000),
+		maxRetries:         5,
+		baseRetryDelay:     2 * time.Second,
+		pingInterval:       30 * time.Second,
+		pongTimeout:        90 * time.Second,
 	}
+
+	// Start background workers
+	go hub.retryWorker()
+	go hub.connectionHealthChecker()
+
+	return hub
 }
 
-// Register adds a client connection
-func (h *Hub) Register(userID uint, conn *websocket.Conn) {
+// Register adds a client connection with health monitoring
+func (h *Hub) Register(userID uint, conn *websocket.Conn, supportsGzip bool) {
+	clientConn := &ClientConnection{
+		Conn:         conn,
+		UserID:       userID,
+		LastPong:     time.Now(),
+		SupportsGzip: supportsGzip,
+		PingTicker:   time.NewTicker(h.pingInterval),
+		CloseChan:    make(chan struct{}),
+	}
+
+	// Setup pong handler
+	conn.SetPongHandler(func(appData string) error {
+		h.clientsMux.Lock()
+		if client, exists := h.clients[userID]; exists {
+			client.LastPong = time.Now()
+		}
+		h.clientsMux.Unlock()
+		return nil
+	})
+
+	// Set read deadline for ping/pong
+	conn.SetReadDeadline(time.Now().Add(h.pongTimeout))
+
 	h.clientsMux.Lock()
-	h.clients[userID] = conn
+	h.clients[userID] = clientConn
 	h.clientsMux.Unlock()
-	log.Printf("User %d connected to hub (total: %d)", userID, len(h.clients))
+
+	// Start ping routine
+	go h.pingRoutine(clientConn)
+
+	log.Printf("User %d connected to hub (total: %d, gzip: %v)", userID, len(h.clients), supportsGzip)
 }
 
 // Unregister removes a client connection
 func (h *Hub) Unregister(userID uint) {
 	h.clientsMux.Lock()
+	if client, exists := h.clients[userID]; exists {
+		if client.PingTicker != nil {
+			client.PingTicker.Stop()
+		}
+		close(client.CloseChan)
+	}
 	delete(h.clients, userID)
 	count := len(h.clients)
 	h.clientsMux.Unlock()
@@ -46,14 +120,15 @@ func (h *Hub) IsOnline(userID uint) bool {
 	return exists
 }
 
-// SendToUser sends data to a specific user
+// SendToUser sends data to a specific user with optional compression
 func (h *Hub) SendToUser(userID uint, data interface{}) error {
 	h.clientsMux.RLock()
-	conn, exists := h.clients[userID]
+	clientConn, exists := h.clients[userID]
 	h.clientsMux.RUnlock()
 
 	if !exists {
-		return nil // User offline, message should be queued
+		// User offline, queue message for later delivery
+		return h.queueMessage(userID, data, 0)
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -62,20 +137,57 @@ func (h *Hub) SendToUser(userID uint, data interface{}) error {
 		return err
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+	// Compress if supported and beneficial (> 512 bytes)
+	var finalData []byte
+	if clientConn.SupportsGzip && len(jsonData) > 512 {
+		compressed, err := h.compressData(jsonData)
+		if err == nil && len(compressed) < len(jsonData) {
+			finalData = compressed
+		} else {
+			finalData = jsonData
+		}
+	} else {
+		finalData = jsonData
+	}
+
+	if err := clientConn.Conn.WriteMessage(websocket.TextMessage, finalData); err != nil {
 		log.Printf("Error sending message to user %d: %v", userID, err)
-		// Connection may be dead, unregister
+		// Connection may be dead, unregister and queue message
 		h.Unregister(userID)
-		return err
+		return h.queueMessage(userID, data, 0)
 	}
 
 	return nil
 }
 
+// queueMessage stores a message for offline or failed delivery
+func (h *Hub) queueMessage(userID uint, data interface{}, priority int) error {
+	if h.pendingMessageRepo == nil {
+		return nil // No repository configured, skip queueing
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	// Extract message ID if present in the data
+	var messageID uint
+	if dataMap, ok := data.(map[string]interface{}); ok {
+		if msg, ok := dataMap["message"].(map[string]interface{}); ok {
+			if id, ok := msg["id"].(uint); ok {
+				messageID = id
+			}
+		}
+	}
+
+	return h.pendingMessageRepo.Enqueue(userID, messageID, string(jsonData), priority)
+}
+
 // Broadcast sends data to all connected users
 func (h *Hub) Broadcast(data interface{}) {
 	h.clientsMux.RLock()
-	clients := make(map[uint]*websocket.Conn, len(h.clients))
+	clients := make(map[uint]*ClientConnection, len(h.clients))
 	for id, conn := range h.clients {
 		clients[id] = conn
 	}
@@ -87,8 +199,8 @@ func (h *Hub) Broadcast(data interface{}) {
 		return
 	}
 
-	for userID, conn := range clients {
-		if err := conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+	for userID, clientConn := range clients {
+		if err := clientConn.Conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
 			log.Printf("Error broadcasting to user %d: %v", userID, err)
 			h.Unregister(userID)
 		}
@@ -107,8 +219,8 @@ func (h *Hub) BroadcastToUsers(userIDs []uint, data interface{}) {
 	defer h.clientsMux.RUnlock()
 
 	for _, userID := range userIDs {
-		if conn, exists := h.clients[userID]; exists {
-			if err := conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+		if clientConn, exists := h.clients[userID]; exists {
+			if err := clientConn.Conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
 				log.Printf("Error sending to user %d: %v", userID, err)
 			}
 		}
@@ -132,4 +244,207 @@ func (h *Hub) Count() int {
 	h.clientsMux.RLock()
 	defer h.clientsMux.RUnlock()
 	return len(h.clients)
+}
+
+// FlushPendingMessages sends all queued messages to a newly connected user
+func (h *Hub) FlushPendingMessages(userID uint) error {
+	if h.pendingMessageRepo == nil {
+		return nil
+	}
+
+	// Get connection
+	h.clientsMux.RLock()
+	clientConn, exists := h.clients[userID]
+	h.clientsMux.RUnlock()
+
+	if !exists {
+		return nil // User disconnected already
+	}
+
+	// Fetch pending messages in batches
+	batchSize := 50
+	pending, err := h.pendingMessageRepo.GetPendingForUser(userID, batchSize)
+	if err != nil {
+		log.Printf("Error fetching pending messages for user %d: %v", userID, err)
+		return err
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Printf("Flushing %d pending messages to user %d", len(pending), userID)
+
+	// Send messages in batch
+	batch := make([]interface{}, 0, len(pending))
+	successIDs := make([]uint, 0, len(pending))
+
+	for _, pm := range pending {
+		var data interface{}
+		if err := json.Unmarshal([]byte(pm.Payload), &data); err != nil {
+			log.Printf("Error unmarshaling pending message %d: %v", pm.ID, err)
+			continue
+		}
+		batch = append(batch, data)
+		successIDs = append(successIDs, pm.ID)
+	}
+
+	// Send batch envelope
+	batchMessage := map[string]interface{}{
+		"type":     "batch",
+		"messages": batch,
+		"count":    len(batch),
+	}
+
+	if err := clientConn.Conn.WriteJSON(batchMessage); err != nil {
+		log.Printf("Error sending batch to user %d: %v", userID, err)
+		// Connection failed, messages stay in queue
+		return err
+	}
+
+	// Successfully delivered, remove from queue
+	if err := h.pendingMessageRepo.DeleteBatch(successIDs); err != nil {
+		log.Printf("Error deleting delivered messages: %v", err)
+	}
+
+	// If there are more messages, recursively flush (rate-limited by batch size)
+	if len(pending) == batchSize {
+		// Small delay to avoid overwhelming the connection
+		time.Sleep(100 * time.Millisecond)
+		return h.FlushPendingMessages(userID)
+	}
+
+	return nil
+}
+
+// retryWorker processes failed deliveries with exponential backoff
+func (h *Hub) retryWorker() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if h.pendingMessageRepo == nil {
+			continue
+		}
+
+		// Get messages ready for retry
+		retryable, err := h.pendingMessageRepo.GetRetryable(100)
+		if err != nil {
+			log.Printf("Error fetching retryable messages: %v", err)
+			continue
+		}
+
+		for _, pm := range retryable {
+			// Check if user is now online
+			h.clientsMux.RLock()
+			clientConn, isOnline := h.clients[pm.UserID]
+			h.clientsMux.RUnlock()
+
+			if !isOnline {
+				// Still offline, calculate next retry with exponential backoff
+				attempts := pm.Attempts + 1
+				if attempts >= h.maxRetries {
+					// Max retries reached, keep in queue but don't retry for a while
+					nextRetry := time.Now().Add(1 * time.Hour)
+					h.pendingMessageRepo.MarkAttempted(pm.ID, attempts, &nextRetry)
+					continue
+				}
+
+				// Exponential backoff: 2s, 4s, 8s, 16s, 32s
+				delay := h.baseRetryDelay * time.Duration(1<<uint(attempts))
+				nextRetry := time.Now().Add(delay)
+				h.pendingMessageRepo.MarkAttempted(pm.ID, attempts, &nextRetry)
+				continue
+			}
+
+			// User is online, attempt delivery
+			var data interface{}
+			if err := json.Unmarshal([]byte(pm.Payload), &data); err != nil {
+				log.Printf("Error unmarshaling message for retry %d: %v", pm.ID, err)
+				continue
+			}
+
+			jsonData, _ := json.Marshal(data)
+			if err := clientConn.Conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+				log.Printf("Retry delivery failed for user %d: %v", pm.UserID, err)
+				// Mark for next retry
+				attempts := pm.Attempts + 1
+				delay := h.baseRetryDelay * time.Duration(1<<uint(attempts))
+				nextRetry := time.Now().Add(delay)
+				h.pendingMessageRepo.MarkAttempted(pm.ID, attempts, &nextRetry)
+			} else {
+				// Successfully delivered, remove from queue
+				log.Printf("Successfully delivered pending message %d to user %d", pm.ID, pm.UserID)
+				h.pendingMessageRepo.Delete(pm.ID)
+			}
+		}
+	}
+}
+
+// pingRoutine sends periodic ping messages to keep connection alive
+func (h *Hub) pingRoutine(client *ClientConnection) {
+	for {
+		select {
+		case <-client.CloseChan:
+			return
+		case <-client.PingTicker.C:
+			if err := client.Conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+				log.Printf("Ping failed for user %d: %v", client.UserID, err)
+				h.Unregister(client.UserID)
+				return
+			}
+		}
+	}
+}
+
+// connectionHealthChecker monitors connection health and removes dead connections
+func (h *Hub) connectionHealthChecker() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		h.clientsMux.RLock()
+		deadConnections := make([]uint, 0)
+		now := time.Now()
+
+		for userID, client := range h.clients {
+			if now.Sub(client.LastPong) > h.pongTimeout {
+				deadConnections = append(deadConnections, userID)
+			}
+		}
+		h.clientsMux.RUnlock()
+
+		// Unregister dead connections
+		for _, userID := range deadConnections {
+			log.Printf("Removing dead connection for user %d (no pong received)", userID)
+			h.Unregister(userID)
+		}
+	}
+}
+
+// compressData compresses data using gzip
+func (h *Hub) compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+
+	if _, err := gzipWriter.Write(data); err != nil {
+		return nil, err
+	}
+
+	if err := gzipWriter.Close(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// decompressData decompresses gzip data
+func (h *Hub) decompressData(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	return io.ReadAll(reader)
 }

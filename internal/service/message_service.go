@@ -48,6 +48,14 @@ func (s *MessageService) GetConversation(userID1, userID2 uint, limit int) ([]mo
 	return s.messageRepo.FindConversation(userID1, userID2, limit)
 }
 
+// GetConversationCursor fetches messages with cursor-based pagination
+func (s *MessageService) GetConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error) {
+	if limit == 0 || limit > 100 {
+		limit = 50
+	}
+	return s.messageRepo.FindConversationCursor(userID1, userID2, cursor, limit)
+}
+
 func (s *MessageService) MarkAsDelivered(messageID uint) error {
 	return s.messageRepo.MarkAsDelivered(messageID)
 }

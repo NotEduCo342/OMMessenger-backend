@@ -106,6 +106,14 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 		return SendError(ctx.Conn, "save_failed", "Failed to save message", err.Error())
 	}
 
+	// Invalidate conversation cache for both sender and recipient
+	if msg.RecipientID != nil && ctx.MessageCache != nil {
+		_ = ctx.MessageCache.InvalidateConversation(ctx.UserID, *msg.RecipientID)
+		_ = ctx.MessageCache.InvalidateConversationList(ctx.UserID)
+		_ = ctx.MessageCache.InvalidateConversationList(*msg.RecipientID)
+		_ = ctx.MessageCache.InvalidateUnreadCount(*msg.RecipientID, ctx.UserID)
+	}
+
 	// Send ACK to sender
 	ack := MessageAck{
 		ClientID: msg.ClientID,

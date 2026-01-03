@@ -1,6 +1,10 @@
 package repository
 
-import "github.com/noteduco342/OMMessenger-backend/internal/models"
+import (
+	"time"
+
+	"github.com/noteduco342/OMMessenger-backend/internal/models"
+)
 
 // UserRepositoryInterface defines the contract for user repository operations
 type UserRepositoryInterface interface {
@@ -19,6 +23,7 @@ type MessageRepositoryInterface interface {
 	FindByID(id uint) (*models.Message, error)
 	FindByClientID(clientID string, senderID uint) (*models.Message, error)
 	FindConversation(userID1, userID2 uint, limit int) ([]models.Message, error)
+	FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error)
 	FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
 	MarkAsDelivered(messageID uint) error
 	MarkAsRead(messageID uint) error
@@ -40,4 +45,16 @@ type GroupRepositoryInterface interface {
 	GetMembers(groupID uint) ([]models.User, error)
 	IsMember(groupID, userID uint) (bool, error)
 	GetUserGroups(userID uint) ([]models.Group, error)
+}
+
+// PendingMessageRepositoryInterface defines the contract for pending message queue operations
+type PendingMessageRepositoryInterface interface {
+	Enqueue(userID, messageID uint, payload string, priority int) error
+	GetPendingForUser(userID uint, limit int) ([]models.PendingMessage, error)
+	GetRetryable(limit int) ([]models.PendingMessage, error)
+	MarkAttempted(id uint, attempts int, nextRetry *time.Time) error
+	Delete(id uint) error
+	DeleteBatch(ids []uint) error
+	CountPendingForUser(userID uint) (int64, error)
+	CleanupOld(olderThan time.Duration) error
 }

@@ -28,9 +28,30 @@ func (r *MessageRepository) FindConversation(userID1, userID2 uint, limit int) (
 	err := r.db.Preload("Sender").
 		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
 			userID1, userID2, userID2, userID1).
-		Order("created_at DESC").
+		Order("id DESC").
 		Limit(limit).
 		Find(&messages).Error
+
+	// Reverse to get chronological order
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
+	return messages, err
+}
+
+// FindConversationCursor fetches messages using cursor-based pagination (more efficient)
+func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error) {
+	var messages []models.Message
+	query := r.db.Preload("Sender").
+		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+			userID1, userID2, userID2, userID1)
+
+	if cursor > 0 {
+		query = query.Where("id < ?", cursor)
+	}
+
+	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
 
 	// Reverse to get chronological order
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
@@ -70,12 +91,11 @@ func (r *MessageRepository) FindByClientID(clientID string, senderID uint) (*mod
 	return &message, nil
 }
 
-// FindMessagesSince gets messages for a conversation since a specific message ID
+// FindMessagesSince gets messages for a conversation since a specific message ID (optimized with ID index)
 func (r *MessageRepository) FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
 
-	// For now, conversationID format is "user1_user2" for DMs or "group_123" for groups
-	// Parse and query accordingly - simplified version for direct messages
+	// Use ID-based query which is faster than created_at
 	err := r.db.Preload("Sender").
 		Where("id > ?", lastMessageID).
 		Order("id ASC").

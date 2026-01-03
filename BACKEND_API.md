@@ -258,3 +258,69 @@ List groups the user belongs to.
   "is_typing": true
 }
 ```
+
+#### 4. Batch Messages (On Reconnect)
+When a user reconnects after being offline, the server sends pending messages in batches:
+```json
+{
+  "type": "batch",
+  "count": 25,
+  "messages": [
+    {
+      "type": "message",
+      "message": { ... }
+    },
+    {
+      "type": "message",
+      "message": { ... }
+    }
+  ]
+}
+```
+**Note**: Batches are limited to 50 messages. If more messages are queued, multiple batches will be sent with a 100ms delay between them.
+
+#### 5. Sync Response
+```json
+{
+  "type": "sync_response",
+  "conversation_id": "user_123",
+  "messages": [ ...messages... ],
+  "has_more": true,
+  "next_cursor": 150
+}
+```
+
+---
+
+## Offline Message Queue & Delivery Guarantees
+
+### How It Works
+
+**Automatic Queueing**: When a message is sent to an offline user or delivery fails:
+1. Message is stored in the `pending_messages` table
+2. Includes retry metadata (attempts, next_retry timestamp)
+3. Prioritized by message priority and creation time
+
+**On Reconnection**:
+1. User connects via WebSocket
+2. Server immediately flushes all pending messages in batches (max 50 per batch)
+3. Successfully delivered messages are removed from queue
+
+**Retry Mechanism** (Background Worker):
+- Runs every 5 seconds
+- Checks for messages with `next_retry <= now()`
+- Uses exponential backoff: 2s → 4s → 8s → 16s → 32s
+- Max 5 retry attempts before entering long-term queue (1 hour delay)
+- If user comes online, messages are delivered immediately
+
+**Delivery Tracking**:
+- Messages include `client_id` (UUID) for deduplication
+- Duplicate sends return the same ACK (idempotent)
+- Status progression: pending → sent → delivered → read
+
+### Performance Characteristics
+
+- **2G Network**: Batching reduces round-trips significantly
+- **Intermittent Connectivity**: Messages queue during disconnects
+- **No Message Loss**: All messages persisted until delivered
+- **Efficient Bandwidth**: Batch envelope minimizes protocol overhead

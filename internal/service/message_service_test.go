@@ -61,6 +61,22 @@ func (m *MockMessageRepository) FindConversation(userID1, userID2 uint, limit in
 	return result, nil
 }
 
+func (m *MockMessageRepository) FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error) {
+	var result []models.Message
+	count := 0
+	for _, msg := range m.messages {
+		if count >= limit {
+			break
+		}
+		if msg.ID < cursor && ((msg.SenderID == userID1 && msg.RecipientID != nil && *msg.RecipientID == userID2) ||
+			(msg.SenderID == userID2 && msg.RecipientID != nil && *msg.RecipientID == userID1)) {
+			result = append(result, *msg)
+			count++
+		}
+	}
+	return result, nil
+}
+
 func (m *MockMessageRepository) FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var result []models.Message
 	count := 0
