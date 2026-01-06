@@ -24,7 +24,7 @@ type MessageRepositoryInterface interface {
 	FindByClientID(clientID string, senderID uint) (*models.Message, error)
 	FindConversation(userID1, userID2 uint, limit int) ([]models.Message, error)
 	FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error)
-	FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
+	FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
 	MarkAsDelivered(messageID uint) error
 	MarkAsRead(messageID uint) error
 }

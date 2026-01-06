@@ -89,9 +89,9 @@ func (s *MessageService) GetByClientID(clientID string, senderID uint) (*models.
 }
 
 // GetMessagesSince gets messages for a conversation since a specific message ID
-func (s *MessageService) GetMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
+func (s *MessageService) GetMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	if limit == 0 || limit > 100 {
 		limit = 100
 	}
-	return s.messageRepo.FindMessagesSince(conversationID, lastMessageID, limit)
+	return s.messageRepo.FindMessagesSince(requestingUserID, conversationID, lastMessageID, limit)
 }

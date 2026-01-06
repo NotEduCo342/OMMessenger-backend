@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"log"
+	"os"
 
 	"github.com/gofiber/websocket/v2"
 	"github.com/noteduco342/OMMessenger-backend/internal/cache"
@@ -37,6 +38,7 @@ func (h *WebSocketHandler) GetHub() *ws.Hub {
 
 func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 	userID := c.Locals("userID").(uint)
+	wsDebug := os.Getenv("WS_DEBUG") == "true"
 
 	// Check if client supports gzip compression (via query param or header)
 	supportsGzip := c.Query("gzip") == "1" || c.Headers("X-Supports-Gzip") == "1"
@@ -100,20 +102,18 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 			break
 		}
 
-		// Debug: log message type and size
-		log.Printf("📨 Received from user %d: type=%d size=%d bytes", userID, messageType, len(messageBytes))
-		log.Printf("📄 FULL MESSAGE: %s", string(messageBytes))
+		if wsDebug {
+			log.Printf("ws_recv user_id=%d frame_type=%d size=%d", userID, messageType, len(messageBytes))
+		}
 
 		// Decompress if binary message (gzip compressed)
 		if messageType == websocket.BinaryMessage {
-			log.Printf("🗜️ Decompressing binary message (%d bytes)", len(messageBytes))
 			decompressed, err := ws.DecompressMessage(messageBytes)
 			if err != nil {
 				log.Printf("Error decompressing message from user %d: %v", userID, err)
 				ws.SendError(c, "decompression_failed", "Failed to decompress message", err.Error())
 				continue
 			}
-			log.Printf("✅ Decompressed: %d → %d bytes", len(messageBytes), len(decompressed))
 			messageBytes = decompressed
 		}
 

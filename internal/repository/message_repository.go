@@ -1,6 +1,10 @@
 package repository
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -92,15 +96,66 @@ func (r *MessageRepository) FindByClientID(clientID string, senderID uint) (*mod
 }
 
 // FindMessagesSince gets messages for a conversation since a specific message ID (optimized with ID index)
-func (r *MessageRepository) FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
+
+func parseConversationID(conversationID string) (kind string, id uint, err error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return "", 0, fmt.Errorf("empty conversation_id")
+	}
+	if strings.HasPrefix(conversationID, "user_") {
+		s := strings.TrimPrefix(conversationID, "user_")
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid user conversation_id: %w", err)
+		}
+		return "user", uint(v), nil
+	}
+	if strings.HasPrefix(conversationID, "group_") {
+		s := strings.TrimPrefix(conversationID, "group_")
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid group conversation_id: %w", err)
+		}
+		return "group", uint(v), nil
+	}
+	return "", 0, fmt.Errorf("unknown conversation_id format")
+}
+
+func (r *MessageRepository) FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
 
-	// Use ID-based query which is faster than created_at
-	err := r.db.Preload("Sender").
-		Where("id > ?", lastMessageID).
-		Order("id ASC").
-		Limit(limit).
-		Find(&messages).Error
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	kind, id, err := parseConversationID(conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	query := r.db.Preload("Sender").Where("messages.id > ?", lastMessageID)
+
+	switch kind {
+	case "user":
+		otherUserID := id
+		query = query.
+			Where("messages.group_id IS NULL").
+			Where("(messages.sender_id = ? AND messages.recipient_id = ?) OR (messages.sender_id = ? AND messages.recipient_id = ?)",
+				requestingUserID, otherUserID, otherUserID, requestingUserID)
+	case "group":
+		groupID := id
+		// Enforce group membership by joining group_members with requestingUserID.
+		query = query.
+			Joins("JOIN group_members gm ON gm.group_id = messages.group_id AND gm.user_id = ?", requestingUserID).
+			Where("messages.group_id = ?", groupID)
+	default:
+		return nil, fmt.Errorf("unsupported conversation kind")
+	}
+
+	err = query.Order("messages.id ASC").Limit(limit).Find(&messages).Error
 
 	return messages, err
 }

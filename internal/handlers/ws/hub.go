@@ -144,10 +144,12 @@ func (h *Hub) SendToUserWithID(userID uint, messageID uint, data interface{}) er
 
 	// Compress if supported and beneficial (> 512 bytes)
 	var finalData []byte
+	frameType := websocket.TextMessage
 	if clientConn.SupportsGzip && len(jsonData) > 512 {
 		compressed, err := h.compressData(jsonData)
 		if err == nil && len(compressed) < len(jsonData) {
 			finalData = compressed
+			frameType = websocket.BinaryMessage
 		} else {
 			finalData = jsonData
 		}
@@ -155,7 +157,7 @@ func (h *Hub) SendToUserWithID(userID uint, messageID uint, data interface{}) er
 		finalData = jsonData
 	}
 
-	if err := clientConn.Conn.WriteMessage(websocket.TextMessage, finalData); err != nil {
+	if err := clientConn.Conn.WriteMessage(frameType, finalData); err != nil {
 		log.Printf("Error sending message to user %d: %v", userID, err)
 		// Connection may be dead, unregister and queue message
 		h.Unregister(userID)

@@ -36,7 +36,7 @@ func (msg *MessageSync) GetType() string {
 func (msg *MessageSync) Process(ctx *MessageContext) error {
 	// For each conversation, get messages since last known ID
 	for _, conv := range msg.Conversations {
-		messages, err := ctx.MessageService.GetMessagesSince(conv.ConversationID, conv.LastMessageID, 100)
+		messages, err := ctx.MessageService.GetMessagesSince(ctx.UserID, conv.ConversationID, conv.LastMessageID, 100)
 		if err != nil {
 			log.Printf("Error fetching messages for conversation %s: %v", conv.ConversationID, err)
 			continue

@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
@@ -77,16 +79,29 @@ func (m *MockMessageRepository) FindConversationCursor(userID1, userID2 uint, cu
 	return result, nil
 }
 
-func (m *MockMessageRepository) FindMessagesSince(conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
+func (m *MockMessageRepository) FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var result []models.Message
 	count := 0
 	for _, msg := range m.messages {
 		if count >= limit {
 			break
 		}
-		if msg.ID > lastMessageID {
-			result = append(result, *msg)
-			count++
+		if msg.ID <= lastMessageID {
+			continue
+		}
+		// Very small mock: support direct conversations of the form user_<id>
+		if strings.HasPrefix(conversationID, "user_") {
+			otherStr := strings.TrimPrefix(conversationID, "user_")
+			otherID64, err := strconv.ParseUint(otherStr, 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			otherID := uint(otherID64)
+			if (msg.SenderID == requestingUserID && msg.RecipientID != nil && *msg.RecipientID == otherID) ||
+				(msg.SenderID == otherID && msg.RecipientID != nil && *msg.RecipientID == requestingUserID) {
+				result = append(result, *msg)
+				count++
+			}
 		}
 	}
 	return result, nil
@@ -376,10 +391,14 @@ func TestGetMessagesSince(t *testing.T) {
 	mockRepo := NewMockMessageRepository()
 	messageService := NewMessageService(mockRepo)
 
-	// Create test messages
-	mockRepo.Create(&models.Message{ID: 1, Content: "Message 1"})
-	mockRepo.Create(&models.Message{ID: 2, Content: "Message 2"})
-	mockRepo.Create(&models.Message{ID: 3, Content: "Message 3"})
+	requestingUserID := uint(1)
+	otherUserID := uint(2)
+	conversationID := "user_2"
+
+	// Create test messages between user 1 and user 2
+	mockRepo.Create(&models.Message{ID: 1, SenderID: requestingUserID, RecipientID: &otherUserID, Content: "Message 1"})
+	mockRepo.Create(&models.Message{ID: 2, SenderID: otherUserID, RecipientID: &requestingUserID, Content: "Message 2"})
+	mockRepo.Create(&models.Message{ID: 3, SenderID: requestingUserID, RecipientID: &otherUserID, Content: "Message 3"})
 
 	tests := []struct {
 		name             string
@@ -389,14 +408,14 @@ func TestGetMessagesSince(t *testing.T) {
 		shouldErr        bool
 		expectedMinCount int
 	}{
-		{"Get messages since ID 1", "conv-1", 1, 50, false, 2},
-		{"Get with limit", "conv-1", 0, 1, false, 0},
-		{"Get with excessive limit", "conv-1", 0, 150, false, 3},
+		{"Get messages since ID 1", conversationID, 1, 50, false, 2},
+		{"Get with limit", conversationID, 0, 1, false, 1},
+		{"Get with excessive limit", conversationID, 0, 150, false, 3},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := messageService.GetMessagesSince(tt.conversationID, tt.lastMessageID, tt.limit)
+			result, err := messageService.GetMessagesSince(requestingUserID, tt.conversationID, tt.lastMessageID, tt.limit)
 			if (err != nil) != tt.shouldErr {
 				t.Errorf("GetMessagesSince error = %v, wantErr %v", err, tt.shouldErr)
 			}

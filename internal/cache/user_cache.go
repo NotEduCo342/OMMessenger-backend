@@ -22,6 +22,9 @@ func NewUserCache(redis *RedisCache) *UserCache {
 
 // SetUserOnline adds a user to the online users set
 func (uc *UserCache) SetUserOnline(userID uint) error {
+	if uc == nil || uc.redis == nil {
+		return nil
+	}
 	key := "online:users"
 	if err := uc.redis.SetAdd(key, userID); err != nil {
 		return err
@@ -34,6 +37,9 @@ func (uc *UserCache) SetUserOnline(userID uint) error {
 
 // SetUserOffline removes a user from the online users set
 func (uc *UserCache) SetUserOffline(userID uint) error {
+	if uc == nil || uc.redis == nil {
+		return nil
+	}
 	key := "online:users"
 	if err := uc.redis.SetRemove(key, userID); err != nil {
 		return err
@@ -46,12 +52,18 @@ func (uc *UserCache) SetUserOffline(userID uint) error {
 
 // IsUserOnline checks if a user is online
 func (uc *UserCache) IsUserOnline(userID uint) bool {
+	if uc == nil || uc.redis == nil {
+		return false
+	}
 	userKey := fmt.Sprintf("online:%d", userID)
 	return uc.redis.Exists(userKey)
 }
 
 // GetOnlineUsers returns all online user IDs
 func (uc *UserCache) GetOnlineUsers() ([]uint, error) {
+	if uc == nil || uc.redis == nil {
+		return nil, nil
+	}
 	key := "online:users"
 	members, err := uc.redis.SetMembers(key)
 	if err != nil {
@@ -70,12 +82,18 @@ func (uc *UserCache) GetOnlineUsers() ([]uint, error) {
 
 // GetOnlineCount returns the number of online users
 func (uc *UserCache) GetOnlineCount() (int64, error) {
+	if uc == nil || uc.redis == nil {
+		return 0, nil
+	}
 	key := "online:users"
 	return uc.redis.SetCard(key)
 }
 
 // RefreshUserOnline extends the TTL for an online user
 func (uc *UserCache) RefreshUserOnline(userID uint) error {
+	if uc == nil || uc.redis == nil {
+		return nil
+	}
 	userKey := fmt.Sprintf("online:%d", userID)
 	return uc.redis.Set(userKey, []byte("1"), OnlineUsersTTL)
 }
