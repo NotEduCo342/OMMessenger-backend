@@ -14,6 +14,33 @@ services:
     networks:
       - om-backend-net
 
+  minio:
+    image: minio/minio:latest
+    container_name: om-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER: "on"
+      # Storage quota: 5GB
+      MINIO_API_REQUESTS_MAX: 10000
+    volumes:
+      - minio_data:/data
+    networks:
+      - om-backend-net
+    # Local access only - no public ports
+    # Backend will access via minio:9000 internally
+    # For local management, uncomment these lines:
+    # ports:
+    #   - "127.0.0.1:9000:9000"   # S3 API
+    #   - "127.0.0.1:9001:9001"   # Web Console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   backend:
     build:
       context: .
@@ -34,12 +61,19 @@ services:
       - "127.0.0.1:8082:8080"
     depends_on:
       - postgres
+      - minio
     networks:
       - om-backend-net
       - proxy-net
 
 volumes:
   postgres_data:
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind,size=5G
+      device: ./minio-storage
 
 networks:
   om-backend-net:

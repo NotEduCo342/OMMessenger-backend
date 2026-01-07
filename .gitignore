@@ -41,3 +41,4 @@ Thumbs.db
 *.db
 *.sqlite
 om-mobile/
+minio-storage/
