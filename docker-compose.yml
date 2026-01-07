@@ -69,11 +69,6 @@ services:
 volumes:
   postgres_data:
   minio_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind,size=5G
-      device: ./minio-storage
 
 networks:
   om-backend-net:
