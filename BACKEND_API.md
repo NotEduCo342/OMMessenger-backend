@@ -121,6 +121,48 @@ Get public profile of a specific user.
 
 ## Messages (REST)
 
+### List Conversations
+Fetch the authenticated user's direct-message conversation list (1 row per peer), including the last message and unread count.
+
+- **Endpoint**: `GET /conversations?limit=50`
+- **Headers**: `Authorization: Bearer <token>`
+- **Cursor pagination** (optional):
+  - `cursor_created_at`: RFC3339/RFC3339Nano timestamp (the last message's `created_at` from the previous page)
+  - `cursor_message_id`: uint message ID (the last message's `id` from the previous page)
+
+Example:
+`GET /conversations?limit=50&cursor_created_at=2026-01-07T12:00:00.000Z&cursor_message_id=1234`
+
+- **Response**:
+  ```json
+  {
+    "conversations": [
+      {
+        "peer": { "id": 2, "username": "bob", "email": "bob@example.com", "full_name": "Bob", "avatar": "", "is_online": false, "last_seen": null },
+        "unread_count": 3,
+        "last_activity": "2026-01-07T12:34:56Z",
+        "last_message": {
+          "id": 1234,
+          "client_id": "uuid-v4",
+          "sender_id": 2,
+          "sender": { "id": 2, "username": "bob", "email": "bob@example.com", "full_name": "Bob", "avatar": "", "is_online": false, "last_seen": null },
+          "recipient_id": 1,
+          "group_id": null,
+          "content": "Hey",
+          "message_type": "text",
+          "status": "sent",
+          "is_delivered": true,
+          "is_read": false,
+          "created_at": "2026-01-07T12:34:56Z"
+        }
+      }
+    ],
+    "count": 1,
+    "next_cursor_created_at": "2026-01-07T12:34:56.000Z",
+    "next_cursor_message_id": 1234
+  }
+  ```
+
 ### Get Messages
 Fetch message history for a conversation.
 - **Endpoint**: `GET /messages?recipient_id=123&limit=50`

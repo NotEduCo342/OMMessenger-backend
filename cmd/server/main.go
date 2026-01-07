@@ -123,6 +123,7 @@ func main() {
 	protected.Put("/users/me", userHandler.UpdateProfile)
 	protected.Get("/users/search", userHandler.SearchUsers)
 	protected.Get("/users/:identifier", userHandler.GetUser)
+	protected.Get("/conversations", messageHandler.GetConversations)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
 

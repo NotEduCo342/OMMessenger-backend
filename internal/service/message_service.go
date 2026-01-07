@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"github.com/noteduco342/OMMessenger-backend/internal/repository"
 )
@@ -94,4 +96,14 @@ func (s *MessageService) GetMessagesSince(requestingUserID uint, conversationID 
 		limit = 100
 	}
 	return s.messageRepo.FindMessagesSince(requestingUserID, conversationID, lastMessageID, limit)
+}
+
+func (s *MessageService) ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.ConversationRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.messageRepo.ListDirectConversations(userID, cursorCreatedAt, cursorMessageID, limit)
 }

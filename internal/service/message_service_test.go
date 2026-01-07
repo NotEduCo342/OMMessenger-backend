@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
+	"github.com/noteduco342/OMMessenger-backend/internal/repository"
 )
 
 // MockMessageRepository is a mock implementation of MessageRepository for testing
@@ -105,6 +107,10 @@ func (m *MockMessageRepository) FindMessagesSince(requestingUserID uint, convers
 		}
 	}
 	return result, nil
+}
+
+func (m *MockMessageRepository) ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.ConversationRow, error) {
+	return []repository.ConversationRow{}, nil
 }
 
 func (m *MockMessageRepository) MarkAsDelivered(messageID uint) error {
