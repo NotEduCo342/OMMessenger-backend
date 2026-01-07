@@ -117,7 +117,9 @@ func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
 	}
 
 	if len(messages) > 0 {
-		result["next_cursor"] = messages[0].ID // Oldest message ID for loading older messages
+		// Messages are returned newest-first.
+		// Use the last element (oldest in this page) as the cursor for loading older messages.
+		result["next_cursor"] = messages[len(messages)-1].ID
 	}
 
 	return c.JSON(result)

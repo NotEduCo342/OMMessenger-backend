@@ -36,11 +36,6 @@ func (r *MessageRepository) FindConversation(userID1, userID2 uint, limit int) (
 		Limit(limit).
 		Find(&messages).Error
 
-	// Reverse to get chronological order
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
-
 	return messages, err
 }
 
@@ -56,11 +51,6 @@ func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor
 	}
 
 	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
-
-	// Reverse to get chronological order
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
 
 	return messages, err
 }

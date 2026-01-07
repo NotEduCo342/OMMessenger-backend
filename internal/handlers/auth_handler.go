@@ -93,8 +93,13 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 
 	setAuthCookies(c, session.AccessToken, session.RefreshToken)
 	log.Printf("event=refresh user_id=%d ip=%s rid=%s", session.User.ID, c.IP(), c.Locals("requestid"))
+	// Return tokens in the response body as well.
+	// This keeps browser cookie-auth working (via Set-Cookie) while allowing
+	// non-cookie clients (e.g. mobile) to persist rotated tokens.
 	return c.JSON(fiber.Map{
-		"user": session.User,
+		"user":          session.User,
+		"access_token":  session.AccessToken,
+		"refresh_token": session.RefreshToken,
 	})
 }
 
