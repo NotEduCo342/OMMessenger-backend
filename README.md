@@ -1,7 +1,7 @@
 # OMMessenger-backend
 
 OM Messenger backend (Go + Fiber + Postgres).
-70% done
+75% done
 This repo currently implements cookie-based auth suitable for intranet deployments:
 - Short-lived access JWT in `om_access` (HttpOnly)
 - Long-lived refresh token in `om_refresh` (HttpOnly, stored hashed in DB)
