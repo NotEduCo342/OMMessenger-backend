@@ -83,18 +83,21 @@ func main() {
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 	groupRepo := repository.NewGroupRepository(db)
 	pendingMessageRepo := repository.NewPendingMessageRepository(db)
+	versionRepo := repository.NewVersionRepository(db)
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, refreshTokenRepo)
 	userService := service.NewUserService(userRepo)
 	messageService := service.NewMessageService(messageRepo)
 	groupService := service.NewGroupService(groupRepo)
+	versionService := service.NewVersionService(versionRepo)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	messageHandler := handlers.NewMessageHandler(messageService, messageCache)
 	groupHandler := handlers.NewGroupHandler(groupService)
+	versionHandler := handlers.NewVersionHandler(versionService)
 	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService, pendingMessageRepo, userCache, messageCache)
 
 	// Public routes
@@ -109,6 +112,10 @@ func main() {
 	auth.Post("/refresh", authHandler.Refresh) // No CSRF required - protected by HttpOnly refresh token
 	auth.Post("/logout", middleware.CSRFRequired(), authHandler.Logout)
 	api.Get("/users/check-username", userHandler.CheckUsername) // Public endpoint for username check
+
+	// Version endpoint (public - no auth required for update checks)
+	api.Get("/version", versionHandler.GetVersion)
+	api.Get("/version/check", versionHandler.CheckUpdate)
 
 	// Protected routes
 	protected := api.Group("/", middleware.AuthRequired(), middleware.CSRFRequired())
