@@ -110,7 +110,10 @@ Search for users by name or username.
 
 ### Get User by Username
 Get public profile of a specific user.
-- **Endpoint**: `GET /users/:username`
+- **Endpoint**: `GET /users/:identifier`
+- **Notes**:
+  - If `:identifier` is numeric, it is treated as a user ID (e.g. `/users/42`).
+  - Otherwise it is treated as a username (e.g. `/users/johndoe`).
 - **Headers**: `Authorization: Bearer <token>`
 - **Response**: `{"user": { ... }}`
 

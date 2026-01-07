@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
@@ -126,6 +129,41 @@ func (h *UserHandler) GetUserByUsername(c *fiber.Ctx) error {
 	user, err := h.userService.GetUserByUsername(username)
 	if err != nil {
 		return httpx.BadRequest(c, "user_not_found", "User not found")
+	}
+
+	return c.JSON(fiber.Map{
+		"user": user.ToResponse(),
+	})
+}
+
+// GetUser gets a user's profile by ID or username.
+// Route: GET /users/:identifier
+// - If identifier is numeric => lookup by user ID
+// - Otherwise => lookup by username
+func (h *UserHandler) GetUser(c *fiber.Ctx) error {
+	identifier := strings.TrimSpace(c.Params("identifier"))
+	if identifier == "" {
+		return httpx.BadRequest(c, "missing_identifier", "Identifier is required")
+	}
+
+	// Numeric path segment => treat as user ID
+	if id64, err := strconv.ParseUint(identifier, 10, 64); err == nil {
+		if id64 == 0 {
+			return httpx.BadRequest(c, "invalid_user_id", "Invalid user ID")
+		}
+		user, err := h.userService.GetUserByID(uint(id64))
+		if err != nil {
+			return httpx.Error(c, fiber.StatusNotFound, "user_not_found", "User not found")
+		}
+		return c.JSON(fiber.Map{
+			"user": user.ToResponse(),
+		})
+	}
+
+	// Otherwise treat as username
+	user, err := h.userService.GetUserByUsername(identifier)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusNotFound, "user_not_found", "User not found")
 	}
 
 	return c.JSON(fiber.Map{

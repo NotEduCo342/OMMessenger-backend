@@ -122,7 +122,7 @@ func main() {
 	protected.Get("/users/me", userHandler.GetCurrentUser)
 	protected.Put("/users/me", userHandler.UpdateProfile)
 	protected.Get("/users/search", userHandler.SearchUsers)
-	protected.Get("/users/:username", userHandler.GetUserByUsername)
+	protected.Get("/users/:identifier", userHandler.GetUser)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
 
