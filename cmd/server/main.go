@@ -158,6 +158,7 @@ func main() {
 	protected.Get("/users/search", userHandler.SearchUsers)
 	protected.Get("/users/:identifier", userHandler.GetUser)
 	protected.Get("/conversations", messageHandler.GetConversations)
+	protected.Post("/conversations/:peer_id/read", messageHandler.MarkConversationRead)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
 

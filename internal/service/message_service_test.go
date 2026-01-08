@@ -131,6 +131,19 @@ func (m *MockMessageRepository) MarkAsRead(messageID uint) error {
 	return errors.New("record not found")
 }
 
+func (m *MockMessageRepository) MarkConversationAsRead(userID uint, peerID uint) (int64, error) {
+	// Minimal mock: mark messages from peer -> user as read.
+	var cleared int64
+	for _, msg := range m.messages {
+		if msg.RecipientID != nil && *msg.RecipientID == userID && msg.SenderID == peerID && !msg.IsRead {
+			msg.IsRead = true
+			msg.Status = models.StatusRead
+			cleared++
+		}
+	}
+	return cleared, nil
+}
+
 // Tests for MessageService
 
 func TestSendMessage(t *testing.T) {

@@ -73,6 +73,20 @@ func (r *MessageRepository) MarkAsRead(messageID uint) error {
 		}).Error
 }
 
+func (r *MessageRepository) MarkConversationAsRead(userID uint, peerID uint) (int64, error) {
+	tx := r.db.Model(&models.Message{}).
+		Where("group_id IS NULL").
+		Where("recipient_id = ?", userID).
+		Where("sender_id = ?", peerID).
+		Where("is_read = false").
+		Updates(map[string]interface{}{
+			"is_read": true,
+			"read_at": gorm.Expr("NOW()"),
+			"status":  models.StatusRead,
+		})
+	return tx.RowsAffected, tx.Error
+}
+
 // FindByClientID finds a message by client ID and sender
 func (r *MessageRepository) FindByClientID(clientID string, senderID uint) (*models.Message, error) {
 	var message models.Message

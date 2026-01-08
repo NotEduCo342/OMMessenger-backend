@@ -221,3 +221,26 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 
 	return c.JSON(result)
 }
+
+func (h *MessageHandler) MarkConversationRead(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	peerStr := c.Params("peer_id")
+	peerID64, err := strconv.ParseUint(peerStr, 10, 32)
+	if err != nil || peerID64 == 0 {
+		return httpx.BadRequest(c, "invalid_peer_id", "Invalid peer_id")
+	}
+
+	cleared, err := h.messageService.MarkConversationAsRead(userID, uint(peerID64))
+	if err != nil {
+		return httpx.Internal(c, "mark_conversation_read_failed")
+	}
+
+	return c.JSON(fiber.Map{
+		"ok":      true,
+		"cleared": cleared,
+	})
+}

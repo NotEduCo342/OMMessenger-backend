@@ -66,6 +66,10 @@ func (s *MessageService) MarkAsRead(messageID uint) error {
 	return s.messageRepo.MarkAsRead(messageID)
 }
 
+func (s *MessageService) MarkConversationAsRead(userID uint, peerID uint) (int64, error) {
+	return s.messageRepo.MarkConversationAsRead(userID, peerID)
+}
+
 // CreateWithClientID creates a message with client ID for deduplication
 func (s *MessageService) CreateWithClientID(senderID uint, clientID string, recipientID *uint, groupID *uint, content string) (*models.Message, error) {
 	message := &models.Message{

@@ -28,6 +28,7 @@ type MessageRepositoryInterface interface {
 	ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationRow, error)
 	MarkAsDelivered(messageID uint) error
 	MarkAsRead(messageID uint) error
+	MarkConversationAsRead(userID uint, peerID uint) (int64, error)
 }
 
 // RefreshTokenRepositoryInterface defines the contract for refresh token repository operations
