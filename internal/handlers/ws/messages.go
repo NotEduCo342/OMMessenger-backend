@@ -42,11 +42,16 @@ func (msg *MessageSync) Process(ctx *MessageContext) error {
 			continue
 		}
 
+		responses := make([]models.MessageResponse, len(messages))
+		for i := range messages {
+			responses[i] = messages[i].ToResponse()
+		}
+
 		// Send batch response
 		response := SyncResponse{
 			Type:           "sync_response",
 			ConversationID: conv.ConversationID,
-			Messages:       messages,
+			Messages:       responses,
 			HasMore:        len(messages) == 100,
 		}
 
@@ -63,11 +68,11 @@ func (msg *MessageSync) Process(ctx *MessageContext) error {
 }
 
 type SyncResponse struct {
-	Type           string           `json:"type"`
-	ConversationID string           `json:"conversation_id"`
-	Messages       []models.Message `json:"messages"`
-	HasMore        bool             `json:"has_more"`
-	NextCursor     *uint            `json:"next_cursor,omitempty"`
+	Type           string                   `json:"type"`
+	ConversationID string                   `json:"conversation_id"`
+	Messages       []models.MessageResponse `json:"messages"`
+	HasMore        bool                     `json:"has_more"`
+	NextCursor     *uint                    `json:"next_cursor,omitempty"`
 }
 
 // MessageChat is a new chat message from client
@@ -97,9 +102,10 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 		// Already processed, send ACK again with proper wrapper
 		log.Printf("✅ Duplicate message, re-sending ACK for server_id=%d", existing.ID)
 		ackData, _ := json.Marshal(MessageAck{
-			ClientID: msg.ClientID,
-			ServerID: existing.ID,
-			Status:   string(existing.Status),
+			ClientID:      msg.ClientID,
+			ServerID:      existing.ID,
+			Status:        string(existing.Status),
+			CreatedAtUnix: existing.CreatedAt.UTC().Unix(),
 		})
 		ackWrapper := SerializedMessage{
 			Type:    MsgAck,
@@ -128,9 +134,10 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	// Send ACK to sender with proper wrapper
 	log.Printf("📤 Sending ACK to sender...")
 	ackData, _ := json.Marshal(MessageAck{
-		ClientID: msg.ClientID,
-		ServerID: message.ID,
-		Status:   "sent",
+		ClientID:      msg.ClientID,
+		ServerID:      message.ID,
+		Status:        "sent",
+		CreatedAtUnix: message.CreatedAt.UTC().Unix(),
 	})
 	ackWrapper := SerializedMessage{
 		Type:    MsgAck,
@@ -171,9 +178,10 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 
 // MessageAck acknowledges message delivery/read status
 type MessageAck struct {
-	ClientID string `json:"client_id,omitempty"`
-	ServerID uint   `json:"server_id,omitempty"`
-	Status   string `json:"status"` // sent, delivered, read
+	ClientID      string `json:"client_id,omitempty"`
+	ServerID      uint   `json:"server_id,omitempty"`
+	Status        string `json:"status"` // sent, delivered, read
+	CreatedAtUnix int64  `json:"created_at_unix,omitempty"`
 }
 
 func (msg *MessageAck) GetType() string {

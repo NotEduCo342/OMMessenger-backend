@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -81,6 +82,20 @@ func (h *UserHandler) GetCurrentUser(c *fiber.Ctx) error {
 	user, err := h.userService.GetUserByID(userID)
 	if err != nil {
 		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	// ETag allows clients to re-check frequently without re-downloading.
+	etag := fmt.Sprintf("W/\"u-%d-%d\"", user.ID, user.UpdatedAt.UTC().UnixNano())
+	c.Set("ETag", etag)
+	c.Set("Cache-Control", "private, max-age=0, must-revalidate")
+
+	if inm := strings.TrimSpace(c.Get("If-None-Match")); inm != "" {
+		// Support quoted, weak, and multi-value headers.
+		inmNorm := strings.Trim(strings.TrimPrefix(inm, "W/"), "\"")
+		etagNorm := strings.Trim(strings.TrimPrefix(etag, "W/"), "\"")
+		if strings.Contains(inmNorm, etagNorm) {
+			return c.SendStatus(fiber.StatusNotModified)
+		}
 	}
 
 	return c.JSON(fiber.Map{

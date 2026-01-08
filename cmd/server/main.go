@@ -15,9 +15,11 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/noteduco342/OMMessenger-backend/internal/cache"
 	"github.com/noteduco342/OMMessenger-backend/internal/handlers"
+	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
 	"github.com/noteduco342/OMMessenger-backend/internal/middleware"
 	"github.com/noteduco342/OMMessenger-backend/internal/repository"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
+	"github.com/noteduco342/OMMessenger-backend/internal/storage"
 )
 
 func main() {
@@ -33,8 +35,9 @@ func main() {
 
 	// Initialize Fiber app
 	app := fiber.New(fiber.Config{
-		AppName:   "OM Messenger Backend",
-		BodyLimit: 1 * 1024 * 1024, // 1MB
+		AppName: "OM Messenger Backend",
+		// Support avatar uploads up to 5MB + overhead.
+		BodyLimit: 8 * 1024 * 1024, // 8MB
 	})
 
 	// Middleware
@@ -92,9 +95,24 @@ func main() {
 	groupService := service.NewGroupService(groupRepo)
 	versionService := service.NewVersionService(versionRepo)
 
+	// Initialize S3/MinIO storage (best-effort; feature endpoints return 503 if missing)
+	var s3Store *storage.S3Storage
+	if cfg, err := storage.LoadS3ConfigFromEnv(); err != nil {
+		log.Printf("WARNING: S3 storage not configured: %v", err)
+	} else if st, err := storage.NewS3Storage(cfg); err != nil {
+		log.Printf("WARNING: Failed to initialize S3 storage: %v", err)
+	} else {
+		s3Store = st
+		log.Printf("S3 storage initialized successfully (bucket=%s)", cfg.Bucket)
+	}
+
+	avatarService := service.NewAvatarService(userRepo, s3Store)
+
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
+	avatarHandler := handlers.NewAvatarHandler(avatarService)
+	mediaHandler := handlers.NewMediaHandler(s3Store)
 	messageHandler := handlers.NewMessageHandler(messageService, messageCache)
 	groupHandler := handlers.NewGroupHandler(groupService)
 	versionHandler := handlers.NewVersionHandler(versionService)
@@ -121,6 +139,22 @@ func main() {
 	protected := api.Group("/", middleware.AuthRequired(), middleware.CSRFRequired())
 	protected.Get("/users/me", userHandler.GetCurrentUser)
 	protected.Put("/users/me", userHandler.UpdateProfile)
+	protected.Post(
+		"/users/me/avatar",
+		limiter.New(limiter.Config{
+			Max:        10,
+			Expiration: 10 * time.Minute,
+			KeyGenerator: func(c *fiber.Ctx) string {
+				if uid, err := httpx.LocalUint(c, "userID"); err == nil {
+					return "avatar:" + strconv.FormatUint(uint64(uid), 10)
+				}
+				return c.IP()
+			},
+		}),
+		avatarHandler.UploadMyAvatar,
+	)
+	protected.Delete("/users/me/avatar", avatarHandler.DeleteMyAvatar)
+	protected.Get("/media/avatars/*", mediaHandler.GetAvatar)
 	protected.Get("/users/search", userHandler.SearchUsers)
 	protected.Get("/users/:identifier", userHandler.GetUser)
 	protected.Get("/conversations", messageHandler.GetConversations)

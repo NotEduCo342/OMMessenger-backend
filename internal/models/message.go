@@ -57,35 +57,37 @@ type Message struct {
 }
 
 type MessageResponse struct {
-	ID          uint          `json:"id"`
-	ClientID    string        `json:"client_id"`
-	SenderID    uint          `json:"sender_id"`
-	Sender      UserResponse  `json:"sender"`
-	RecipientID *uint         `json:"recipient_id"`
-	GroupID     *uint         `json:"group_id"`
-	Content     string        `json:"content"`
-	MessageType MessageType   `json:"message_type"`
-	Status      MessageStatus `json:"status"`
-	IsDelivered bool          `json:"is_delivered"`
-	IsRead      bool          `json:"is_read"`
-	Version     int           `json:"version"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ID            uint          `json:"id"`
+	ClientID      string        `json:"client_id"`
+	SenderID      uint          `json:"sender_id"`
+	Sender        UserResponse  `json:"sender"`
+	RecipientID   *uint         `json:"recipient_id"`
+	GroupID       *uint         `json:"group_id"`
+	Content       string        `json:"content"`
+	MessageType   MessageType   `json:"message_type"`
+	Status        MessageStatus `json:"status"`
+	IsDelivered   bool          `json:"is_delivered"`
+	IsRead        bool          `json:"is_read"`
+	Version       int           `json:"version"`
+	CreatedAt     time.Time     `json:"created_at"`
+	CreatedAtUnix int64         `json:"created_at_unix"`
 }
 
 func (m *Message) ToResponse() MessageResponse {
 	return MessageResponse{
-		ID:          m.ID,
-		ClientID:    m.ClientID,
-		SenderID:    m.SenderID,
-		Sender:      m.Sender.ToResponse(),
-		RecipientID: m.RecipientID,
-		GroupID:     m.GroupID,
-		Content:     m.Content,
-		MessageType: m.MessageType,
-		Status:      m.Status,
-		IsDelivered: m.IsDelivered,
-		IsRead:      m.IsRead,
-		Version:     m.Version,
-		CreatedAt:   m.CreatedAt,
+		ID:            m.ID,
+		ClientID:      m.ClientID,
+		SenderID:      m.SenderID,
+		Sender:        m.Sender.ToResponse(),
+		RecipientID:   m.RecipientID,
+		GroupID:       m.GroupID,
+		Content:       m.Content,
+		MessageType:   m.MessageType,
+		Status:        m.Status,
+		IsDelivered:   m.IsDelivered,
+		IsRead:        m.IsRead,
+		Version:       m.Version,
+		CreatedAt:     m.CreatedAt,
+		CreatedAtUnix: m.CreatedAt.UTC().Unix(),
 	}
 }
