@@ -36,6 +36,10 @@ MINIO_ROOT_PASSWORD=your_strong_password_at_least_32_chars_recommended
 MINIO_ENDPOINT=minio:9000
 MINIO_USE_SSL=false
 MINIO_BUCKET_NAME=om-avatars
+
+# Backend Configuration
+# The Go backend reads S3_* variables; docker-compose maps these from MINIO_*.
+PUBLIC_API_BASE_URL=http://localhost:8080/api
 ```
 
 **Important**: Change `MINIO_ROOT_PASSWORD` to a strong random password!
