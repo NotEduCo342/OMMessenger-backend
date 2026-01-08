@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"bufio"
 	"errors"
+	"io"
+	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +41,11 @@ func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
 		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Not found")
 	}
 
+	log.Printf("[media] avatar get start keyParam=%q key=%q", keyParam, key)
+
 	obj, st, err := h.s3.GetObject(c.Context(), key)
 	if err != nil {
+		log.Printf("[media] avatar get error key=%q err=%v", key, err)
 		// Hide details.
 		var resp minio.ErrorResponse
 		if errors.As(err, &resp) {
@@ -48,12 +55,15 @@ func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
 		}
 		return httpx.Internal(c, "media_fetch_failed")
 	}
-	defer obj.Close()
+
+	log.Printf("[media] avatar stat key=%q size=%d etag=%q contentType=%q lastModified=%s", key, st.Size, st.ETag, st.ContentType, st.LastModified.UTC().Format(time.RFC3339Nano))
 
 	etag := st.ETag
 	if etag != "" {
 		c.Set("ETag", "\""+etag+"\"")
 		if inm := normalizeETag(c.Get("If-None-Match")); inm != "" && inm == normalizeETag(etag) {
+			_ = obj.Close()
+			log.Printf("[media] avatar 304 key=%q", key)
 			return c.SendStatus(fiber.StatusNotModified)
 		}
 	}
@@ -67,7 +77,29 @@ func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
 	} else {
 		c.Type("image/jpeg")
 	}
+	if st.Size > 0 {
+		c.Set("Content-Length", strconv.FormatInt(st.Size, 10))
+	}
 
-	// Stream object.
-	return c.SendStream(obj, int(st.Size))
+	// Stream object while capturing any mid-stream errors.
+	// (Fiber versions vary; use underlying fasthttp stream writer.)
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer func() {
+			_ = obj.Close()
+		}()
+
+		n, copyErr := io.Copy(w, obj)
+		flushErr := w.Flush()
+
+		if copyErr != nil {
+			log.Printf("[media] avatar stream error key=%q copied=%d err=%v", key, n, copyErr)
+			return
+		}
+		if flushErr != nil {
+			log.Printf("[media] avatar stream flush error key=%q copied=%d err=%v", key, n, flushErr)
+			return
+		}
+		log.Printf("[media] avatar stream ok key=%q bytes=%d", key, n)
+	})
+	return nil
 }
