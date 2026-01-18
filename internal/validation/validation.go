@@ -27,9 +27,18 @@ func NormalizeUsername(username string) string {
 	return strings.TrimSpace(username)
 }
 
+func NormalizeHandle(handle string) string {
+	return strings.ToLower(strings.TrimSpace(handle))
+}
+
 func ValidateUsername(username string) bool {
 	username = NormalizeUsername(username)
 	return usernameRe.MatchString(username)
+}
+
+func ValidateHandle(handle string) bool {
+	handle = NormalizeHandle(handle)
+	return usernameRe.MatchString(handle)
 }
 
 func PasswordMinLength() int {

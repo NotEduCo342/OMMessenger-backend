@@ -49,7 +49,8 @@ func TestRegister(t *testing.T) {
 
 	mockUserRepo := NewMockUserRepository()
 	mockRefreshTokenRepo := NewMockRefreshTokenRepository()
-	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo, mockGroupRepo)
 
 	tests := []struct {
 		name      string
@@ -118,7 +119,8 @@ func TestLogin(t *testing.T) {
 
 	mockUserRepo := NewMockUserRepository()
 	mockRefreshTokenRepo := NewMockRefreshTokenRepository()
-	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo, mockGroupRepo)
 
 	// Create a test user with hashed password
 	testPassword := "securepassword123"
@@ -180,7 +182,8 @@ func TestRefreshSession(t *testing.T) {
 
 	mockUserRepo := NewMockUserRepository()
 	mockRefreshTokenRepo := NewMockRefreshTokenRepository()
-	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo, mockGroupRepo)
 
 	testUser := &models.User{
 		ID:       1,
@@ -225,7 +228,8 @@ func TestRefreshSession(t *testing.T) {
 func TestLogout(t *testing.T) {
 	mockUserRepo := NewMockUserRepository()
 	mockRefreshTokenRepo := NewMockRefreshTokenRepository()
-	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	authService := NewAuthService(mockUserRepo, mockRefreshTokenRepo, mockGroupRepo)
 
 	// Create a refresh token
 	rawToken, tokenHash, _ := generateRefreshToken()

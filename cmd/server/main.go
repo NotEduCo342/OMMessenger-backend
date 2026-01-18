@@ -85,14 +85,16 @@ func main() {
 	messageRepo := repository.NewMessageRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 	groupRepo := repository.NewGroupRepository(db)
+	groupInviteRepo := repository.NewGroupInviteRepository(db)
+	groupReadStateRepo := repository.NewGroupReadStateRepository(db)
 	pendingMessageRepo := repository.NewPendingMessageRepository(db)
 	versionRepo := repository.NewVersionRepository(db)
 
 	// Initialize services
-	authService := service.NewAuthService(userRepo, refreshTokenRepo)
-	userService := service.NewUserService(userRepo)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, groupRepo)
+	userService := service.NewUserService(userRepo, groupRepo)
 	messageService := service.NewMessageService(messageRepo)
-	groupService := service.NewGroupService(groupRepo)
+	groupService := service.NewGroupService(groupRepo, groupReadStateRepo, userRepo, groupInviteRepo)
 	versionService := service.NewVersionService(versionRepo)
 
 	// Initialize S3/MinIO storage (best-effort; feature endpoints return 503 if missing)
@@ -109,14 +111,14 @@ func main() {
 	avatarService := service.NewAvatarService(userRepo, s3Store)
 
 	// Initialize handlers
+	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService, pendingMessageRepo, userCache, messageCache)
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	avatarHandler := handlers.NewAvatarHandler(avatarService)
 	mediaHandler := handlers.NewMediaHandler(s3Store)
-	messageHandler := handlers.NewMessageHandler(messageService, messageCache)
+	messageHandler := handlers.NewMessageHandler(messageService, groupService, messageCache, wsHandler.GetHub())
 	groupHandler := handlers.NewGroupHandler(groupService)
 	versionHandler := handlers.NewVersionHandler(versionService)
-	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService, pendingMessageRepo, userCache, messageCache)
 
 	// Public routes
 	api := app.Group("/api", middleware.OriginAllowed())
@@ -134,6 +136,7 @@ func main() {
 	// Version endpoint (public - no auth required for update checks)
 	api.Get("/version", versionHandler.GetVersion)
 	api.Get("/version/check", versionHandler.CheckUpdate)
+	api.Get("/join/:token", groupHandler.GetInvitePreview)
 
 	// Protected routes
 	protected := api.Group("/", middleware.AuthRequired(), middleware.CSRFRequired())
@@ -161,13 +164,23 @@ func main() {
 	protected.Post("/conversations/:peer_id/read", messageHandler.MarkConversationRead)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
+	protected.Post("/messages/sync", messageHandler.SyncMessages)
 
 	// Group routes
 	protected.Post("/groups", groupHandler.CreateGroup)
 	protected.Get("/groups", groupHandler.GetMyGroups)
+	protected.Get("/groups/public/search", groupHandler.SearchPublicGroups)
+	protected.Get("/groups/handle/:handle", groupHandler.GetPublicGroupByHandle)
+	protected.Post("/groups/handle/:handle/join", groupHandler.JoinPublicGroupByHandle)
 	protected.Post("/groups/:id/join", groupHandler.JoinGroup)
 	protected.Post("/groups/:id/leave", groupHandler.LeaveGroup)
 	protected.Get("/groups/:id/members", groupHandler.GetGroupMembers)
+	protected.Post("/groups/:id/invite-links", groupHandler.CreateInviteLink)
+	protected.Post("/join/:token", groupHandler.JoinByInviteLink)
+	protected.Get("/groups/:id/messages", messageHandler.GetGroupMessages)
+	protected.Post("/groups/:id/messages", messageHandler.SendGroupMessage)
+	protected.Post("/groups/:id/read", messageHandler.MarkGroupRead)
+	protected.Get("/groups/:id/read-state", messageHandler.GetGroupReadState)
 
 	// WebSocket route (websocket upgrade needs special handling)
 	app.Use(

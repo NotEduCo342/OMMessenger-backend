@@ -84,7 +84,8 @@ func (m *MockUserRepository) SearchUsers(query string, limit int) ([]models.User
 
 func TestIsUsernameAvailable(t *testing.T) {
 	mockRepo := NewMockUserRepository()
-	userService := NewUserService(mockRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	userService := NewUserService(mockRepo, mockGroupRepo)
 
 	// Create a test user
 	testUser := &models.User{
@@ -120,7 +121,8 @@ func TestIsUsernameAvailable(t *testing.T) {
 
 func TestUpdateProfile(t *testing.T) {
 	mockRepo := NewMockUserRepository()
-	userService := NewUserService(mockRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	userService := NewUserService(mockRepo, mockGroupRepo)
 
 	// Create a test user
 	testUser := &models.User{
@@ -197,7 +199,8 @@ func TestUpdateProfile(t *testing.T) {
 
 func TestGetUserByID(t *testing.T) {
 	mockRepo := NewMockUserRepository()
-	userService := NewUserService(mockRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	userService := NewUserService(mockRepo, mockGroupRepo)
 
 	testUser := &models.User{
 		ID:       1,
@@ -230,7 +233,8 @@ func TestGetUserByID(t *testing.T) {
 
 func TestGetUserByUsername(t *testing.T) {
 	mockRepo := NewMockUserRepository()
-	userService := NewUserService(mockRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	userService := NewUserService(mockRepo, mockGroupRepo)
 
 	testUser := &models.User{
 		ID:       1,
@@ -263,7 +267,8 @@ func TestGetUserByUsername(t *testing.T) {
 
 func TestSearchUsers(t *testing.T) {
 	mockRepo := NewMockUserRepository()
-	userService := NewUserService(mockRepo)
+	mockGroupRepo := NewMockGroupRepository()
+	userService := NewUserService(mockRepo, mockGroupRepo)
 
 	// Create test users
 	users := []*models.User{

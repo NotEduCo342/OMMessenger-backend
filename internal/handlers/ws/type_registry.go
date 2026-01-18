@@ -14,6 +14,7 @@ func init() {
 	RegisterType(&MessageTyping{})
 	RegisterType(&MessageRead{})
 	RegisterType(&MessageDelivery{})
+	RegisterType(&MessageGroupRead{})
 	RegisterType(&MessagePing{})
 	RegisterType(&MessagePong{})
 }

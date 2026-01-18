@@ -55,6 +55,31 @@ func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor
 	return messages, err
 }
 
+// FindGroupMessages fetches group messages with cursor-based pagination
+func (r *MessageRepository) FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error) {
+	var messages []models.Message
+	query := r.db.Preload("Sender").Where("group_id = ?", groupID)
+
+	if cursor > 0 {
+		query = query.Where("id < ?", cursor)
+	}
+
+	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
+	return messages, err
+}
+
+// GetLatestDirectMessageID returns the latest message ID in a DM conversation (0 if none)
+func (r *MessageRepository) GetLatestDirectMessageID(userID1, userID2 uint) (uint, error) {
+	var maxID uint
+	err := r.db.Model(&models.Message{}).
+		Where("group_id IS NULL").
+		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+			userID1, userID2, userID2, userID1).
+		Select("COALESCE(MAX(id), 0)").
+		Scan(&maxID).Error
+	return maxID, err
+}
+
 func (r *MessageRepository) MarkAsDelivered(messageID uint) error {
 	return r.db.Model(&models.Message{}).Where("id = ?", messageID).
 		Updates(map[string]interface{}{
@@ -162,4 +187,23 @@ func (r *MessageRepository) FindMessagesSince(requestingUserID uint, conversatio
 	err = query.Order("messages.id ASC").Limit(limit).Find(&messages).Error
 
 	return messages, err
+}
+
+// GetLatestGroupMessageID returns the latest message ID in a group (0 if none)
+func (r *MessageRepository) GetLatestGroupMessageID(groupID uint) (uint, error) {
+	var maxID uint
+	err := r.db.Model(&models.Message{}).
+		Where("group_id = ?", groupID).
+		Select("COALESCE(MAX(id), 0)").
+		Scan(&maxID).Error
+	return maxID, err
+}
+
+// IsMessageInGroup checks whether a message belongs to a group
+func (r *MessageRepository) IsMessageInGroup(messageID uint, groupID uint) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Message{}).
+		Where("id = ? AND group_id = ?", messageID, groupID).
+		Count(&count).Error
+	return count > 0, err
 }

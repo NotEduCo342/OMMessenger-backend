@@ -2,20 +2,36 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
 )
 
 const (
-	MsgSync     = "sync"
-	MsgChat     = "chat"
-	MsgAck      = "ack"
-	MsgTyping   = "typing"
-	MsgRead     = "read"
-	MsgDelivery = "delivery"
+	MsgSync      = "sync"
+	MsgChat      = "chat"
+	MsgAck       = "ack"
+	MsgTyping    = "typing"
+	MsgRead      = "read"
+	MsgDelivery  = "delivery"
+	MsgGroupRead = "group_read"
 )
+
+func parseMessageType(input string) models.MessageType {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "", string(models.TextMessage):
+		return models.TextMessage
+	case string(models.ImageMessage):
+		return models.ImageMessage
+	case string(models.FileMessage):
+		return models.FileMessage
+	default:
+		return models.TextMessage
+	}
+}
 
 // ConversationState tracks client's last known message for a conversation
 type ConversationState struct {
@@ -95,6 +111,21 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	if msg.ClientID == "" {
 		return SendError(ctx.Conn, "missing_client_id", "client_id is required", "")
 	}
+	if msg.RecipientID == nil && msg.GroupID == nil {
+		return SendError(ctx.Conn, "missing_recipient", "recipient_id or group_id is required", "")
+	}
+	if msg.RecipientID != nil && msg.GroupID != nil {
+		return SendError(ctx.Conn, "invalid_target", "Only one of recipient_id or group_id is allowed", "")
+	}
+	if msg.GroupID != nil {
+		isMember, err := ctx.GroupService.IsMember(*msg.GroupID, ctx.UserID)
+		if err != nil {
+			return SendError(ctx.Conn, "membership_check_failed", "Failed to check group membership", err.Error())
+		}
+		if !isMember {
+			return SendError(ctx.Conn, "not_group_member", "Not a group member", "")
+		}
+	}
 
 	// Check for duplicate using ClientID
 	existing, err := ctx.MessageService.GetByClientID(msg.ClientID, ctx.UserID)
@@ -116,7 +147,8 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 
 	// Save message to database
 	log.Printf("💾 Saving new message to database...")
-	message, err := ctx.MessageService.CreateWithClientID(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content)
+	messageType := parseMessageType(msg.MessageType)
+	message, err := ctx.MessageService.CreateWithClientIDAndType(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content, messageType)
 	if err != nil {
 		log.Printf("❌ Error saving message: %v", err)
 		return SendError(ctx.Conn, "save_failed", "Failed to save message", err.Error())
@@ -129,6 +161,9 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 		_ = ctx.MessageCache.InvalidateConversationList(ctx.UserID)
 		_ = ctx.MessageCache.InvalidateConversationList(*msg.RecipientID)
 		_ = ctx.MessageCache.InvalidateUnreadCount(*msg.RecipientID, ctx.UserID)
+	}
+	if msg.GroupID != nil && ctx.MessageCache != nil {
+		_ = ctx.MessageCache.InvalidateGroupConversation(*msg.GroupID)
 	}
 
 	// Send ACK to sender with proper wrapper
@@ -166,10 +201,15 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 					memberIDs = append(memberIDs, member.ID)
 				}
 			}
-			ctx.Hub.BroadcastToUsers(memberIDs, map[string]interface{}{
-				"type":    "message",
-				"message": message.ToResponse(),
-			})
+			for _, memberID := range memberIDs {
+				_ = ctx.Hub.SendToUserWithID(memberID, message.ID, map[string]interface{}{
+					"type":    "message",
+					"message": message.ToResponse(),
+				})
+				if ctx.MessageCache != nil {
+					_ = ctx.MessageCache.InvalidateConversationList(memberID)
+				}
+			}
 		}
 	}
 
@@ -197,7 +237,14 @@ func (msg *MessageAck) Process(ctx *MessageContext) error {
 	case "delivered":
 		return ctx.MessageService.MarkAsDelivered(msg.ServerID)
 	case "read":
-		return ctx.MessageService.MarkAsRead(msg.ServerID)
+		if err := ctx.MessageService.MarkAsRead(msg.ServerID); err != nil {
+			return err
+		}
+		message, err := ctx.MessageService.GetByID(msg.ServerID)
+		if err == nil {
+			broadcastDirectReadUpdate(ctx, message)
+		}
+		return nil
 	default:
 		return SendError(ctx.Conn, "invalid_status", "Invalid status", msg.Status)
 	}
@@ -236,7 +283,32 @@ func (msg *MessageRead) GetType() string {
 }
 
 func (msg *MessageRead) Process(ctx *MessageContext) error {
-	return ctx.MessageService.MarkAsRead(msg.MessageID)
+	if err := ctx.MessageService.MarkAsRead(msg.MessageID); err != nil {
+		return err
+	}
+	message, err := ctx.MessageService.GetByID(msg.MessageID)
+	if err == nil {
+		broadcastDirectReadUpdate(ctx, message)
+	}
+	return nil
+}
+
+func broadcastDirectReadUpdate(ctx *MessageContext, message *models.Message) {
+	if message == nil || message.GroupID != nil || message.RecipientID == nil {
+		return
+	}
+	if *message.RecipientID != ctx.UserID {
+		return
+	}
+	ctx.Hub.SendToUser(message.SenderID, map[string]interface{}{
+		"type":                 "read_update",
+		"conversation_id":      fmt.Sprintf("user_%d", ctx.UserID),
+		"user_id":              ctx.UserID,
+		"last_read_message_id": message.ID,
+	})
+	if ctx.MessageCache != nil {
+		_ = ctx.MessageCache.InvalidateConversationList(message.SenderID)
+	}
 }
 
 // MessageDelivery marks message as delivered
@@ -250,4 +322,75 @@ func (msg *MessageDelivery) GetType() string {
 
 func (msg *MessageDelivery) Process(ctx *MessageContext) error {
 	return ctx.MessageService.MarkAsDelivered(msg.MessageID)
+}
+
+// MessageGroupRead updates per-member read state for groups
+type MessageGroupRead struct {
+	GroupID           uint `json:"group_id"`
+	LastReadMessageID uint `json:"last_read_message_id"`
+}
+
+func (msg *MessageGroupRead) GetType() string {
+	return MsgGroupRead
+}
+
+func (msg *MessageGroupRead) Process(ctx *MessageContext) error {
+	if msg.GroupID == 0 {
+		return SendError(ctx.Conn, "missing_group_id", "group_id is required", "")
+	}
+
+	isMember, err := ctx.GroupService.IsMember(msg.GroupID, ctx.UserID)
+	if err != nil {
+		return SendError(ctx.Conn, "membership_check_failed", "Failed to check group membership", err.Error())
+	}
+	if !isMember {
+		return SendError(ctx.Conn, "not_group_member", "Not a group member", "")
+	}
+
+	if msg.LastReadMessageID > 0 {
+		belongs, err := ctx.MessageService.IsMessageInGroup(msg.LastReadMessageID, msg.GroupID)
+		if err != nil {
+			return SendError(ctx.Conn, "validate_message_failed", "Failed to validate message", err.Error())
+		}
+		if !belongs {
+			return SendError(ctx.Conn, "invalid_message_id", "Message does not belong to group", "")
+		}
+	}
+
+	latestID, err := ctx.MessageService.GetLatestGroupMessageID(msg.GroupID)
+	if err != nil {
+		return SendError(ctx.Conn, "latest_message_failed", "Failed to get latest message", err.Error())
+	}
+	lastRead := msg.LastReadMessageID
+	if lastRead > latestID {
+		lastRead = latestID
+	}
+
+	if err := ctx.GroupService.UpsertReadStateMonotonic(msg.GroupID, ctx.UserID, lastRead); err != nil {
+		return SendError(ctx.Conn, "mark_group_read_failed", "Failed to update read state", err.Error())
+	}
+	if ctx.MessageCache != nil {
+		_ = ctx.MessageCache.InvalidateConversationList(ctx.UserID)
+	}
+
+	// Broadcast read update to group members
+	members, err := ctx.GroupService.GetGroupMembers(msg.GroupID)
+	if err == nil {
+		memberIDs := make([]uint, 0, len(members))
+		for _, member := range members {
+			if member.ID != ctx.UserID {
+				memberIDs = append(memberIDs, member.ID)
+			}
+		}
+		if len(memberIDs) > 0 {
+			ctx.Hub.BroadcastToUsers(memberIDs, map[string]interface{}{
+				"type":                 "group_read_update",
+				"group_id":             msg.GroupID,
+				"user_id":              ctx.UserID,
+				"last_read_message_id": lastRead,
+			})
+		}
+	}
+
+	return nil
 }

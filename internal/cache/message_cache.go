@@ -34,12 +34,35 @@ func conversationKey(userID1, userID2 uint) string {
 	return fmt.Sprintf("conv:%d:%d", userID1, userID2)
 }
 
+func groupConversationKey(groupID uint) string {
+	return fmt.Sprintf("group:%d", groupID)
+}
+
 // GetConversation retrieves cached conversation messages
 func (mc *MessageCache) GetConversation(userID1, userID2 uint) ([]models.Message, bool) {
 	if mc == nil || mc.redis == nil {
 		return nil, false
 	}
 	key := conversationKey(userID1, userID2)
+	data, err := mc.redis.Get(key)
+	if err != nil || data == nil {
+		return nil, false
+	}
+
+	var messages []models.Message
+	if err := msgpack.Unmarshal(data, &messages); err != nil {
+		return nil, false
+	}
+
+	return messages, true
+}
+
+// GetGroupConversation retrieves cached group messages
+func (mc *MessageCache) GetGroupConversation(groupID uint) ([]models.Message, bool) {
+	if mc == nil || mc.redis == nil {
+		return nil, false
+	}
+	key := groupConversationKey(groupID)
 	data, err := mc.redis.Get(key)
 	if err != nil || data == nil {
 		return nil, false
@@ -67,12 +90,35 @@ func (mc *MessageCache) SetConversation(userID1, userID2 uint, messages []models
 	return mc.redis.Set(key, data, ConversationTTL)
 }
 
+// SetGroupConversation caches group messages
+func (mc *MessageCache) SetGroupConversation(groupID uint, messages []models.Message) error {
+	if mc == nil || mc.redis == nil {
+		return nil
+	}
+	key := groupConversationKey(groupID)
+	data, err := msgpack.Marshal(messages)
+	if err != nil {
+		return err
+	}
+
+	return mc.redis.Set(key, data, ConversationTTL)
+}
+
 // InvalidateConversation removes conversation from cache
 func (mc *MessageCache) InvalidateConversation(userID1, userID2 uint) error {
 	if mc == nil || mc.redis == nil {
 		return nil
 	}
 	key := conversationKey(userID1, userID2)
+	return mc.redis.Delete(key)
+}
+
+// InvalidateGroupConversation removes group conversation from cache
+func (mc *MessageCache) InvalidateGroupConversation(groupID uint) error {
+	if mc == nil || mc.redis == nil {
+		return nil
+	}
+	key := groupConversationKey(groupID)
 	return mc.redis.Delete(key)
 }
 
@@ -95,6 +141,25 @@ func (mc *MessageCache) GetConversationList(userID uint) ([]interface{}, bool) {
 	return conversations, true
 }
 
+// GetConversationListPayload retrieves cached conversation list payload
+func (mc *MessageCache) GetConversationListPayload(userID uint) (map[string]interface{}, bool) {
+	if mc == nil || mc.redis == nil {
+		return nil, false
+	}
+	key := fmt.Sprintf("convlist:%d", userID)
+	data, err := mc.redis.Get(key)
+	if err != nil || data == nil {
+		return nil, false
+	}
+
+	var payload map[string]interface{}
+	if err := msgpack.Unmarshal(data, &payload); err != nil {
+		return nil, false
+	}
+
+	return payload, true
+}
+
 // SetConversationList caches conversation list for a user
 func (mc *MessageCache) SetConversationList(userID uint, conversations []interface{}) error {
 	if mc == nil || mc.redis == nil {
@@ -102,6 +167,20 @@ func (mc *MessageCache) SetConversationList(userID uint, conversations []interfa
 	}
 	key := fmt.Sprintf("convlist:%d", userID)
 	data, err := msgpack.Marshal(conversations)
+	if err != nil {
+		return err
+	}
+
+	return mc.redis.Set(key, data, UserListTTL)
+}
+
+// SetConversationListPayload caches conversation list payload
+func (mc *MessageCache) SetConversationListPayload(userID uint, payload map[string]interface{}) error {
+	if mc == nil || mc.redis == nil {
+		return nil
+	}
+	key := fmt.Sprintf("convlist:%d", userID)
+	data, err := msgpack.Marshal(payload)
 	if err != nil {
 		return err
 	}

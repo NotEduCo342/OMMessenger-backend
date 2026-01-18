@@ -81,6 +81,41 @@ func (m *MockMessageRepository) FindConversationCursor(userID1, userID2 uint, cu
 	return result, nil
 }
 
+func (m *MockMessageRepository) FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error) {
+	var result []models.Message
+	count := 0
+	for _, msg := range m.messages {
+		if count >= limit {
+			break
+		}
+		if msg.GroupID == nil || *msg.GroupID != groupID {
+			continue
+		}
+		if cursor > 0 && msg.ID >= cursor {
+			continue
+		}
+		result = append(result, *msg)
+		count++
+	}
+	return result, nil
+}
+
+func (m *MockMessageRepository) GetLatestDirectMessageID(userID1, userID2 uint) (uint, error) {
+	var maxID uint
+	for _, msg := range m.messages {
+		if msg.GroupID != nil {
+			continue
+		}
+		if (msg.SenderID == userID1 && msg.RecipientID != nil && *msg.RecipientID == userID2) ||
+			(msg.SenderID == userID2 && msg.RecipientID != nil && *msg.RecipientID == userID1) {
+			if msg.ID > maxID {
+				maxID = msg.ID
+			}
+		}
+	}
+	return maxID, nil
+}
+
 func (m *MockMessageRepository) FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var result []models.Message
 	count := 0
@@ -111,6 +146,33 @@ func (m *MockMessageRepository) FindMessagesSince(requestingUserID uint, convers
 
 func (m *MockMessageRepository) ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.ConversationRow, error) {
 	return []repository.ConversationRow{}, nil
+}
+
+func (m *MockMessageRepository) ListGroupConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.GroupConversationRow, error) {
+	return []repository.GroupConversationRow{}, nil
+}
+
+func (m *MockMessageRepository) ListConversationsUnified(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.ConversationUnifiedRow, error) {
+	return []repository.ConversationUnifiedRow{}, nil
+}
+
+func (m *MockMessageRepository) GetLatestGroupMessageID(groupID uint) (uint, error) {
+	var maxID uint
+	for _, msg := range m.messages {
+		if msg.GroupID != nil && *msg.GroupID == groupID {
+			if msg.ID > maxID {
+				maxID = msg.ID
+			}
+		}
+	}
+	return maxID, nil
+}
+
+func (m *MockMessageRepository) IsMessageInGroup(messageID uint, groupID uint) (bool, error) {
+	if msg, ok := m.messages[messageID]; ok {
+		return msg.GroupID != nil && *msg.GroupID == groupID, nil
+	}
+	return false, nil
 }
 
 func (m *MockMessageRepository) MarkAsDelivered(messageID uint) error {

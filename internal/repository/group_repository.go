@@ -25,6 +25,17 @@ func (r *GroupRepository) FindByID(id uint) (*models.Group, error) {
 	return &group, nil
 }
 
+func (r *GroupRepository) FindByHandle(handle string) (*models.Group, error) {
+	var group models.Group
+	err := r.db.Where("LOWER(handle) = LOWER(?)", handle).
+		Preload("Creator").
+		First(&group).Error
+	if err != nil {
+		return nil, err
+	}
+	return &group, nil
+}
+
 func (r *GroupRepository) AddMember(groupID, userID uint, role models.GroupRole) error {
 	member := models.GroupMember{
 		GroupID: groupID,
@@ -54,10 +65,28 @@ func (r *GroupRepository) IsMember(groupID, userID uint) (bool, error) {
 	return count > 0, err
 }
 
+func (r *GroupRepository) GetMemberRole(groupID, userID uint) (models.GroupRole, error) {
+	var member models.GroupMember
+	if err := r.db.Where("group_id = ? AND user_id = ?", groupID, userID).First(&member).Error; err != nil {
+		return "", err
+	}
+	return member.Role, nil
+}
+
 func (r *GroupRepository) GetUserGroups(userID uint) ([]models.Group, error) {
 	var groups []models.Group
 	err := r.db.Joins("JOIN group_members ON group_members.group_id = groups.id").
 		Where("group_members.user_id = ?", userID).
+		Preload("Creator").
+		Find(&groups).Error
+	return groups, err
+}
+
+func (r *GroupRepository) SearchPublicGroups(query string, limit int) ([]models.Group, error) {
+	var groups []models.Group
+	q := "%" + query + "%"
+	err := r.db.Where("is_public = true AND (LOWER(handle) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?))", q, q).
+		Limit(limit).
 		Preload("Creator").
 		Find(&groups).Error
 	return groups, err

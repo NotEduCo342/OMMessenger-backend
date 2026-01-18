@@ -24,8 +24,14 @@ type MessageRepositoryInterface interface {
 	FindByClientID(clientID string, senderID uint) (*models.Message, error)
 	FindConversation(userID1, userID2 uint, limit int) ([]models.Message, error)
 	FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error)
+	FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error)
 	FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
+	GetLatestDirectMessageID(userID1, userID2 uint) (uint, error)
 	ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationRow, error)
+	ListGroupConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]GroupConversationRow, error)
+	ListConversationsUnified(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationUnifiedRow, error)
+	GetLatestGroupMessageID(groupID uint) (uint, error)
+	IsMessageInGroup(messageID uint, groupID uint) (bool, error)
 	MarkAsDelivered(messageID uint) error
 	MarkAsRead(messageID uint) error
 	MarkConversationAsRead(userID uint, peerID uint) (int64, error)
@@ -42,11 +48,31 @@ type RefreshTokenRepositoryInterface interface {
 type GroupRepositoryInterface interface {
 	Create(group *models.Group) error
 	FindByID(id uint) (*models.Group, error)
+	FindByHandle(handle string) (*models.Group, error)
+	SearchPublicGroups(query string, limit int) ([]models.Group, error)
 	AddMember(groupID, userID uint, role models.GroupRole) error
 	RemoveMember(groupID, userID uint) error
 	GetMembers(groupID uint) ([]models.User, error)
 	IsMember(groupID, userID uint) (bool, error)
+	GetMemberRole(groupID, userID uint) (models.GroupRole, error)
 	GetUserGroups(userID uint) ([]models.Group, error)
+}
+
+// GroupInviteRepositoryInterface defines the contract for group invite link operations
+type GroupInviteRepositoryInterface interface {
+	Create(link *models.GroupInviteLink) error
+	FindByToken(token string) (*models.GroupInviteLink, error)
+	IncrementUse(id uint) error
+	Revoke(id uint, revokedAt time.Time) error
+}
+
+// GroupReadStateRepositoryInterface defines the contract for group read state operations
+type GroupReadStateRepositoryInterface interface {
+	EnsureForMember(groupID, userID uint) error
+	DeleteForMember(groupID, userID uint) error
+	UpsertMonotonic(groupID, userID uint, lastReadMessageID uint) error
+	Get(groupID, userID uint) (*models.GroupReadState, error)
+	ListByGroup(groupID uint) ([]models.GroupReadState, error)
 }
 
 // PendingMessageRepositoryInterface defines the contract for pending message queue operations

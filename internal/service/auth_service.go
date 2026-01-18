@@ -19,10 +19,15 @@ import (
 type AuthService struct {
 	userRepo         repository.UserRepositoryInterface
 	refreshTokenRepo repository.RefreshTokenRepositoryInterface
+	groupRepo        repository.GroupRepositoryInterface
 }
 
-func NewAuthService(userRepo repository.UserRepositoryInterface, refreshTokenRepo repository.RefreshTokenRepositoryInterface) *AuthService {
-	return &AuthService{userRepo: userRepo, refreshTokenRepo: refreshTokenRepo}
+func NewAuthService(
+	userRepo repository.UserRepositoryInterface,
+	refreshTokenRepo repository.RefreshTokenRepositoryInterface,
+	groupRepo repository.GroupRepositoryInterface,
+) *AuthService {
+	return &AuthService{userRepo: userRepo, refreshTokenRepo: refreshTokenRepo, groupRepo: groupRepo}
 }
 
 type RegisterInput struct {
@@ -55,6 +60,12 @@ func (s *AuthService) Register(input RegisterInput) (*AuthSession, error) {
 
 	if _, err := s.userRepo.FindByUsername(input.Username); err == nil {
 		return nil, errors.New("username already exists")
+	}
+
+	if s.groupRepo != nil {
+		if _, err := s.groupRepo.FindByHandle(input.Username); err == nil {
+			return nil, errors.New("username already exists")
+		}
 	}
 
 	// Hash password

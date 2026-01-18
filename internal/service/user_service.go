@@ -9,11 +9,12 @@ import (
 )
 
 type UserService struct {
-	userRepo repository.UserRepositoryInterface
+	userRepo  repository.UserRepositoryInterface
+	groupRepo repository.GroupRepositoryInterface
 }
 
-func NewUserService(userRepo repository.UserRepositoryInterface) *UserService {
-	return &UserService{userRepo: userRepo}
+func NewUserService(userRepo repository.UserRepositoryInterface, groupRepo repository.GroupRepositoryInterface) *UserService {
+	return &UserService{userRepo: userRepo, groupRepo: groupRepo}
 }
 
 type UpdateProfileInput struct {
@@ -31,7 +32,12 @@ func (s *UserService) IsUsernameAvailable(username string) (bool, error) {
 	// Check if username exists
 	_, err := s.userRepo.FindByUsername(username)
 	if err != nil {
-		// Username not found = available
+		// Username not found in users; check group handles
+		if s.groupRepo != nil {
+			if _, gErr := s.groupRepo.FindByHandle(username); gErr == nil {
+				return false, nil
+			}
+		}
 		return true, nil
 	}
 
