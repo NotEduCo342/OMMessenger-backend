@@ -28,6 +28,7 @@ type MessageRepositoryInterface interface {
 	FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
 	GetLatestDirectMessageID(userID1, userID2 uint) (uint, error)
 	ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationRow, error)
+	ListRecentPeers(userID uint, limit int) ([]RecentPeerRow, error)
 	ListGroupConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]GroupConversationRow, error)
 	ListConversationsUnified(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationUnifiedRow, error)
 	GetLatestGroupMessageID(groupID uint) (uint, error)

@@ -177,3 +177,13 @@ func (s *MessageService) ListDirectConversations(userID uint, cursorCreatedAt *t
 	}
 	return s.messageRepo.ListDirectConversations(userID, cursorCreatedAt, cursorMessageID, limit)
 }
+
+func (s *MessageService) ListRecentPeers(userID uint, limit int) ([]repository.RecentPeerRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.messageRepo.ListRecentPeers(userID, limit)
+}

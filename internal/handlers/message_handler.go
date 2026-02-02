@@ -523,6 +523,49 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
+// GetRecentPeers returns recent DM peers for seeding conversation list after reinstall.
+// Endpoint: GET /conversations/peers?limit=50
+func (h *MessageHandler) GetRecentPeers(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	rows, err := h.messageService.ListRecentPeers(userID, limit)
+	if err != nil {
+		return httpx.Internal(c, "fetch_recent_peers_failed")
+	}
+
+	peers := make([]fiber.Map, 0, len(rows))
+	for _, r := range rows {
+		peers = append(peers, fiber.Map{
+			"peer": fiber.Map{
+				"id":        r.PeerID,
+				"username":  r.PeerUsername,
+				"email":     r.PeerEmail,
+				"full_name": r.PeerFullName,
+				"avatar":    r.PeerAvatar,
+				"is_online": r.PeerIsOnline,
+				"last_seen": r.PeerLastSeen,
+			},
+			"last_message_id": r.MessageID,
+			"last_activity":   r.LastActivity,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"peers": peers,
+		"count": len(peers),
+	})
+}
+
 func (h *MessageHandler) MarkConversationRead(c *fiber.Ctx) error {
 	userID, err := httpx.LocalUint(c, "userID")
 	if err != nil {

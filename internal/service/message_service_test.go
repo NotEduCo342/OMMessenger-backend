@@ -116,6 +116,10 @@ func (m *MockMessageRepository) GetLatestDirectMessageID(userID1, userID2 uint) 
 	return maxID, nil
 }
 
+func (m *MockMessageRepository) ListRecentPeers(userID uint, limit int) ([]repository.RecentPeerRow, error) {
+	return []repository.RecentPeerRow{}, nil
+}
+
 func (m *MockMessageRepository) FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error) {
 	var result []models.Message
 	count := 0

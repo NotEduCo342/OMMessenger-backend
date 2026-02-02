@@ -45,6 +45,20 @@ type ConversationRow struct {
 	SenderLastSeen *time.Time `gorm:"column:sender_last_seen"`
 }
 
+// RecentPeerRow represents the most recent DM peer for a user.
+type RecentPeerRow struct {
+	PeerID       uint       `gorm:"column:peer_id"`
+	PeerUsername string     `gorm:"column:peer_username"`
+	PeerEmail    string     `gorm:"column:peer_email"`
+	PeerFullName string     `gorm:"column:peer_full_name"`
+	PeerAvatar   string     `gorm:"column:peer_avatar"`
+	PeerIsOnline bool       `gorm:"column:peer_is_online"`
+	PeerLastSeen *time.Time `gorm:"column:peer_last_seen"`
+
+	MessageID    uint      `gorm:"column:message_id"`
+	LastActivity time.Time `gorm:"column:last_activity"`
+}
+
 func (r *MessageRepository) ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationRow, error) {
 	if limit <= 0 {
 		limit = 50
@@ -136,6 +150,60 @@ LIMIT ?
 	var rows []ConversationRow
 	err := r.db.Raw(query, args...).Scan(&rows).Error
 	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+// ListRecentPeers returns recent DM peers ordered by last activity (newest-first).
+func (r *MessageRepository) ListRecentPeers(userID uint, limit int) ([]RecentPeerRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []interface{}{userID, userID, userID, userID}
+
+	query := strings.TrimSpace(`
+WITH ranked AS (
+	SELECT
+		CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END AS peer_id,
+		m.id AS message_id,
+		m.created_at AS last_activity,
+		ROW_NUMBER() OVER (
+			PARTITION BY CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
+			ORDER BY m.created_at DESC, m.id DESC
+		) AS rn
+	FROM messages m
+	WHERE
+		m.group_id IS NULL
+		AND m.recipient_id IS NOT NULL
+		AND (m.sender_id = ? OR m.recipient_id = ?)
+)
+SELECT
+	r.peer_id,
+	peer.username AS peer_username,
+	peer.email AS peer_email,
+	peer.full_name AS peer_full_name,
+	peer.avatar AS peer_avatar,
+	peer.is_online AS peer_is_online,
+	peer.last_seen AS peer_last_seen,
+	r.message_id,
+	r.last_activity
+FROM ranked r
+JOIN users peer ON peer.id = r.peer_id
+WHERE r.rn = 1
+ORDER BY r.last_activity DESC, r.message_id DESC
+LIMIT ?
+`)
+
+	args = append(args, limit)
+
+	var rows []RecentPeerRow
+	if err := r.db.Raw(query, args...).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
