@@ -60,7 +60,14 @@ jobs:
           
           # Build and Start Containers
           echo "🏗️ Building and Starting Containers..."
-          docker-compose down
+          # Ensure any previous manual container doesn't block compose
+          if docker ps -a --format '{{.Names}}' | grep -xq 'om-backend'; then
+            echo "🧹 Removing existing om-backend container..."
+            docker rm -f om-backend
+          fi
+
+          # Stop compose-managed services and orphans
+          docker-compose down --remove-orphans
           
           # Build using GOPROXY to bypass geo-blocking
           echo "🛡️ Building with GOPROXY..."
