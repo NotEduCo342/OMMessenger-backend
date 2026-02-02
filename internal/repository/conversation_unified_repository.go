@@ -59,7 +59,7 @@ func (r *MessageRepository) ListConversationsUnified(userID uint, cursorCreatedA
 
 	var whereCursor string
 	args := []interface{}{
-		userID, userID, userID, userID, userID, // dm_ranked peer/unread
+		userID, userID, userID, userID, userID, userID, userID, // dm_ranked peer/unread
 		userID, userID, // group_ranked member join + read state
 		userID, // group_empty member join
 	}
