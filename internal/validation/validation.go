@@ -28,7 +28,7 @@ func NormalizeUsername(username string) string {
 }
 
 func NormalizeHandle(handle string) string {
-	return strings.ToLower(strings.TrimSpace(handle))
+	return strings.TrimSpace(handle)
 }
 
 func ValidateUsername(username string) bool {

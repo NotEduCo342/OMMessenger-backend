@@ -56,8 +56,8 @@ func (s *UserService) UpdateProfile(userID uint, input UpdateProfileInput) (*mod
 	if input.Username != "" {
 		username := strings.TrimSpace(input.Username)
 
-		// Only check availability if username is different
-		if username != user.Username {
+		// Only check availability if username is different (case-insensitive)
+		if !strings.EqualFold(username, user.Username) {
 			// Check if new username is available
 			available, err := s.IsUsernameAvailable(username)
 			if err != nil {
@@ -66,6 +66,9 @@ func (s *UserService) UpdateProfile(userID uint, input UpdateProfileInput) (*mod
 			if !available {
 				return nil, errors.New("username already taken")
 			}
+			user.Username = username
+		} else if username != user.Username {
+			// Allow casing-only changes without availability check.
 			user.Username = username
 		}
 	}
