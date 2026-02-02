@@ -61,6 +61,7 @@ func (r *MessageRepository) ListConversationsUnified(userID uint, cursorCreatedA
 	args := []interface{}{
 		userID, userID, userID, userID, userID, // dm_ranked peer/unread
 		userID, userID, // group_ranked member join + read state
+		userID, // group_empty member join
 	}
 	if cursorCreatedAt != nil && cursorMessageID > 0 {
 		whereCursor = "AND (c.last_activity < ? OR (c.last_activity = ? AND c.message_id < ?))"
@@ -168,10 +169,60 @@ group_ranked AS (
 	JOIN users sender ON sender.id = m.sender_id
 	WHERE m.group_id IS NOT NULL
 ),
+group_empty AS (
+	SELECT
+		'group'::text AS conversation_type,
+		NULL::bigint AS peer_id,
+		NULL::text AS peer_username,
+		NULL::text AS peer_email,
+		NULL::text AS peer_full_name,
+		NULL::text AS peer_avatar,
+		NULL::boolean AS peer_is_online,
+		NULL::timestamp AS peer_last_seen,
+		g.id AS group_id,
+		g.name AS group_name,
+		g.icon AS group_icon,
+		(
+			SELECT COUNT(*)
+			FROM group_members gm2
+			WHERE gm2.group_id = g.id
+		) AS member_count,
+		0 AS unread_count,
+		0::bigint AS message_id,
+		''::text AS message_client_id,
+		0::bigint AS message_sender_id,
+		NULL::bigint AS message_recipient_id,
+		NULL::bigint AS message_group_id,
+		''::text AS message_content,
+		''::text AS message_type,
+		''::text AS message_status,
+		false AS message_is_delivered,
+		false AS message_is_read,
+		g.updated_at AS message_created_at,
+		g.updated_at AS last_activity,
+		0::bigint AS sender_id,
+		''::text AS sender_username,
+		''::text AS sender_email,
+		''::text AS sender_full_name,
+		''::text AS sender_avatar,
+		false AS sender_is_online,
+		NULL::timestamp AS sender_last_seen,
+		1 AS rn
+	FROM group_members gm
+	JOIN groups g ON g.id = gm.group_id
+	WHERE gm.user_id = ?
+		AND NOT EXISTS (
+			SELECT 1
+			FROM messages m
+			WHERE m.group_id = g.id
+		)
+),
 combined AS (
 	SELECT * FROM dm_ranked WHERE rn = 1
 	UNION ALL
 	SELECT * FROM group_ranked WHERE rn = 1
+	UNION ALL
+	SELECT * FROM group_empty WHERE rn = 1
 )
 SELECT * FROM combined c
 WHERE 1=1

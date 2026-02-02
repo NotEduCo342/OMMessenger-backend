@@ -466,13 +466,9 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 			groupID = uint(r.MessageGroupID.Int64)
 		}
 
-		conversations = append(conversations, fiber.Map{
-			"conversation_id": conversationID,
-			"peer":            peer,
-			"group":           group,
-			"unread_count":    r.UnreadCount,
-			"last_activity":   r.LastActivity,
-			"last_message": fiber.Map{
+		var lastMessage interface{} = nil
+		if r.MessageID != 0 {
+			lastMessage = fiber.Map{
 				"id":        r.MessageID,
 				"client_id": r.MessageClientID,
 				"sender_id": r.MessageSenderID,
@@ -494,7 +490,16 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 				"is_read":         r.MessageIsRead,
 				"created_at":      r.MessageCreatedAt,
 				"created_at_unix": r.MessageCreatedAt.UTC().Unix(),
-			},
+			}
+		}
+
+		conversations = append(conversations, fiber.Map{
+			"conversation_id": conversationID,
+			"peer":            peer,
+			"group":           group,
+			"unread_count":    r.UnreadCount,
+			"last_activity":   r.LastActivity,
+			"last_message":    lastMessage,
 		})
 	}
 
