@@ -84,6 +84,7 @@ type PendingMessageRepositoryInterface interface {
 	MarkAttempted(id uint, attempts int, nextRetry *time.Time) error
 	Delete(id uint) error
 	DeleteBatch(ids []uint) error
+	DeleteByMessageID(userID, messageID uint) error
 	CountPendingForUser(userID uint) (int64, error)
 	CleanupOld(olderThan time.Duration) error
 }
