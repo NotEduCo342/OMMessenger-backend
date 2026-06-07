@@ -1,33 +1,55 @@
 # OM Messenger Backend Analysis
 
-This document provides a summary of the architecture, strengths, weaknesses, and bugs found in the OM Messenger backend, with a specific focus on the real-time WebSocket implementation and messaging reliability.
+This document provides a comprehensive review of the architecture, strengths, weaknesses, and bugs found in the OM Messenger backend, offering a broader look at the overall codebase.
 
-## Architecture & Strengths
+## 1. High-Level Architecture
+- **Framework:** The application is built using Go and the Fiber framework (`github.com/gofiber/fiber/v2`). This provides a fast, Express-like foundation for routing and middleware.
+- **Persistence:** PostgreSQL is used as the primary database, interfaced via GORM (`gorm.io/gorm`). The models use standard GORM conventions (primary keys, timestamps, soft deletes).
+- **Caching:** Redis is used (`github.com/redis/go-redis/v9`) as a caching layer for high-throughput data, specifically for caching conversation lists, group conversations, and unread message counts, serializing data with MsgPack for efficiency.
+- **File Storage:** MinIO (`github.com/minio/minio-go/v7`) is used for S3-compatible object storage, primarily handling media attachments and user avatars.
 
-- **Solid Foundation:** The backend is built on Go and Fiber, with PostgreSQL and GORM for persistence, which offers high performance and a well-structured ORM layer.
-- **Caching Layer:** Redis is correctly integrated to cache conversations, group conversations, and unread counts, which helps significantly with read performance.
-- **WebSocket Hub:** A dedicated Hub correctly manages user connections, keeping track of connected clients with an active ping/pong health checker. Compression is dynamically enabled for clients that support gzip, reducing bandwidth overhead.
-- **Pending Message Queue:** A `PendingMessageRepository` is used to persist messages for offline users. Background workers attempt delivery using exponential backoff, which is a great approach to handling transient network failures.
+## 2. Authentication & Security
+### Strengths
+- **Dual-Token System:** Uses a robust cookie-based authentication approach: short-lived JWT access tokens and long-lived refresh tokens (stored hashed in the database).
+- **Security Middleware:** Custom middleware is implemented to enforce:
+  - **CSRF Protection:** Validates `X-OM-CSRF` headers against `om_csrf` cookies, protecting unsafe HTTP methods.
+  - **Origin Checking:** Enforces an `ALLOWED_ORIGINS` list for strict CORS and cross-site protections.
+  - **RBAC:** Role-Based Access Control is scaffolded (e.g., checking user status or permissions).
+- **Password Hashing:** `golang.org/x/crypto/bcrypt` is correctly utilized for securing user passwords.
 
-## Weaknesses & Bugs
+### Weaknesses & Areas for Improvement
+- **Token Secret Management:** The JWT secret is crucial and relies entirely on environment variables. While typical, strict validation during startup is necessary to ensure it's sufficiently complex.
+- **Cookie Settings:** Relying on cookies for everything makes native mobile app integration slightly more complex than a pure `Authorization: Bearer` header approach, though `Fiber` handles it well for web clients.
 
-### 1. WebSocket Reliability and Messaging Order
-**Critical Bug in Message Acknowledgment:** The current implementation assumes that a successful `Conn.WriteMessage()` over a WebSocket connection guarantees delivery.
-- In `FlushPendingMessages`, the hub pulls pending messages, writes them to the connection, and **immediately deletes** them from the `PendingMessageRepository`.
-- In `retryWorker`, the same logic applies: if `WriteMessage` doesn't return an error, the message is **immediately deleted**.
-**Consequence:** If the client's network drops exactly after the server writes to the socket but before the packet reaches the client, the message is permanently lost from the queue. It will never be delivered to the client again unless the client performs a manual sync.
-**Fix:** The backend must rely on application-level acknowledgments (`MessageAck`). Messages should remain in the `PendingMessageRepository` until the client explicitly sends a `MessageAck` confirming receipt.
+## 3. Real-Time Communication (WebSockets)
+### Strengths
+- **Centralized Hub:** A dedicated `ws.Hub` correctly manages all active user connections, mapping `userID` to the active socket.
+- **Health Checks:** Implements an active ping/pong health checker to detect and prune dead connections, preventing memory leaks.
+- **Dynamic Compression:** Intelligently enables gzip compression on a per-client basis for larger payloads.
+- **Offline Queue:** Utilizes a `PendingMessageRepository` to persist messages destined for offline users, paired with a background retry worker using exponential backoff.
 
-### 2. General Code Quality
-- **Unused Code:** `decompressData` in `hub.go` is implemented but never used.
-- **Error Handling:** Some database and redis errors are logged but not strictly handled, though the application handles HTTP responses reasonably well.
-- **Queueing Ephemeral Messages:** The hub attempts to exclude ephemeral messages (like typing, ping) from the offline queue, but its detection relies on casting `data` to `map[string]interface{}`. When strong-typed structs are passed to `SendToUser` (such as `models.MessageResponse`), the `dataMap, ok := data.(map[string]interface{})` cast fails, and the ephemeral check is bypassed. Since most data sent to `SendToUserWithID` is serialized differently, the priority system isn't robustly typing-aware.
+### Weaknesses & Bugs (Addressed)
+- **Message Acknowledgment Flaw (Fixed):** Previously, the system assumed a successful `Conn.WriteMessage()` guaranteed delivery, immediately deleting messages from the offline queue. If the client silently disconnected, messages were lost.
+  - *Fix:* Implemented a strict ACK requirement. Messages now remain in the `PendingMessageRepository` and are only deleted when the client explicitly sends a `MessageAck`.
+- **Typing Awareness:** The queue logic attempts to bypass ephemeral messages (typing, ping) by casting to `map[string]interface{}`. This is brittle when strong-typed structs are serialized and queued.
+- **Unused Code (Fixed):** Removed an unused `decompressData` function.
 
-### 3. Concurrency
-- `clientsMux` is appropriately used in the Hub to protect the connections map.
-- Background goroutines handle caching and offline user status asynchronously upon disconnects, avoiding blocking the socket closure.
+## 4. Database Models & Business Logic
+### Strengths
+- **Schema Design:** The models (`User`, `Group`, `Message`, `PendingMessage`, etc.) are well thought out with appropriate foreign key relationships and database indices (e.g., `idx_client_sender` for deduplication).
+- **Service Layer Pattern:** The codebase cleanly separates concerns: Handlers route HTTP/WS requests -> Services contain business logic -> Repositories handle database interactions.
+- **Idempotency:** Messages implement a `ClientID` mechanism (UUIDs generated by the client) allowing the server to deduplicate retries gracefully.
 
-## Proposed Fixes
-1. Stop deleting messages from the `PendingMessageRepository` inside `FlushPendingMessages` and `retryWorker`.
-2. Update the `Process` method for `MessageAck` to delete the pending message from the database.
-3. Remove unused `decompressData` function.
+### Weaknesses & Areas for Improvement
+- **Read States:** Group read states (`GroupReadState`) are updated monotonically per user. However, for massive groups, broadcasting `MessageGroupRead` events to every single online member can become a bottleneck.
+- **Query Optimization:** Cursor-based pagination is implemented (e.g., `FindConversationCursor`), which is excellent. However, some standard offset-limit queries still exist which might degrade as tables grow large.
+- **Error Handling:** While errors are returned correctly through the stack, there is a lack of centralized, structured logging. Currently, basic `log.Printf` is used, which lacks log levels (INFO, WARN, ERROR) and JSON formatting necessary for modern observability stacks (like ELK/Datadog).
+
+## 5. Summary & Next Steps
+The OM Messenger backend is a highly capable and well-structured application, showing advanced patterns like cursor pagination, robust caching, and reliable offline messaging queues.
+
+**Recommended Next Steps:**
+1. **Implement Structured Logging:** Replace standard `log` with a library like `zap` or `zerolog`.
+2. **Prometheus Metrics:** Add fiber middleware to track endpoint latency and active WebSocket connections.
+3. **Refine Ephemeral Message Queuing:** Improve the type-checking in `queueMessage` to safely ignore all ephemeral structs, not just raw maps.
+4. **Integration Testing:** While unit tests exist, end-to-end integration tests (spinning up Postgres, Redis, and MinIO in Docker) would validate the entire flow.
