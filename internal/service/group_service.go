@@ -230,9 +230,14 @@ func (s *GroupService) CreateInviteLink(groupID, creatorID uint, singleUse bool,
 		maxUses = &v
 	}
 
+	token, err := generateInviteToken()
+	if err != nil {
+		return nil, err
+	}
+
 	link := &models.GroupInviteLink{
 		GroupID:   groupID,
-		Token:     generateInviteToken(),
+		Token:     token,
 		CreatedBy: creatorID,
 		ExpiresAt: expiresAt,
 		MaxUses:   maxUses,
@@ -312,10 +317,10 @@ func (s *GroupService) GetInvitePreview(token string) (*models.GroupInviteLink, 
 	return link, group, nil
 }
 
-func generateInviteToken() string {
+func generateInviteToken() (string, error) {
 	b := make([]byte, 18)
 	if _, err := rand.Read(b); err != nil {
-		return base64.RawURLEncoding.EncodeToString([]byte(time.Now().String()))
+		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
