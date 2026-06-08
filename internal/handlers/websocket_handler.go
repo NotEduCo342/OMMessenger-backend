@@ -56,6 +56,12 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 		if err := h.userService.SetUserOnline(userID); err != nil {
 			log.Printf("Failed to set user %d online in DB: %v", userID, err)
 		}
+		
+		h.hub.Broadcast(map[string]interface{}{
+			"type":      "user_status",
+			"user_id":   userID,
+			"is_online": true,
+		})
 	}()
 
 	// Flush pending messages after successful connection
@@ -77,6 +83,12 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 			if err := h.userService.SetUserOffline(userID); err != nil {
 				log.Printf("Failed to set user %d offline in DB: %v", userID, err)
 			}
+
+			h.hub.Broadcast(map[string]interface{}{
+				"type":      "user_status",
+				"user_id":   userID,
+				"is_online": false,
+			})
 		}()
 	}()
 
