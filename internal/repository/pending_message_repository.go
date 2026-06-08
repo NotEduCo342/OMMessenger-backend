@@ -72,6 +72,11 @@ func (r *PendingMessageRepository) DeleteBatch(ids []uint) error {
 	return r.db.Delete(&models.PendingMessage{}, ids).Error
 }
 
+// DeleteByMessageID removes pending messages matching a specific message ID and user ID
+func (r *PendingMessageRepository) DeleteByMessageID(userID, messageID uint) error {
+	return r.db.Where("user_id = ? AND message_id = ?", userID, messageID).Delete(&models.PendingMessage{}).Error
+}
+
 // CountPendingForUser returns the number of pending messages for a user
 func (r *PendingMessageRepository) CountPendingForUser(userID uint) (int64, error) {
 	var count int64

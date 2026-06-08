@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"io"
 	"log"
 	"sync"
 	"time"
@@ -167,6 +166,16 @@ func (h *Hub) SendToUserWithID(userID uint, messageID uint, data interface{}) er
 	return nil
 }
 
+// RemoveAcknowledgedMessage deletes a message from the pending queue after client acknowledgment
+func (h *Hub) RemoveAcknowledgedMessage(userID, messageID uint) {
+	if h.pendingMessageRepo == nil {
+		return
+	}
+	if err := h.pendingMessageRepo.DeleteByMessageID(userID, messageID); err != nil {
+		log.Printf("Error deleting acknowledged message %d for user %d: %v", messageID, userID, err)
+	}
+}
+
 // queueMessage stores a message for offline or failed delivery
 func (h *Hub) queueMessage(userID uint, messageID uint, data interface{}, priority int) error {
 	if h.pendingMessageRepo == nil {
@@ -313,9 +322,13 @@ func (h *Hub) FlushPendingMessages(userID uint) error {
 		return err
 	}
 
-	// Successfully delivered, remove from queue
-	if err := h.pendingMessageRepo.DeleteBatch(successIDs); err != nil {
-		log.Printf("Error deleting delivered messages: %v", err)
+	// NOTE: We do not remove from queue here.
+	// The client MUST send a MessageAck to confirm delivery.
+	// We update the attempt count to prevent immediate retries.
+	// Give the client a reasonable delay to respond before we retry.
+	nextRetry := time.Now().Add(h.baseRetryDelay * 2)
+	for _, pmID := range successIDs {
+		h.pendingMessageRepo.MarkAttempted(pmID, 1, &nextRetry)
 	}
 
 	// If there are more messages, recursively flush (rate-limited by batch size)
@@ -378,16 +391,16 @@ func (h *Hub) retryWorker() {
 			jsonData, _ := json.Marshal(data)
 			if err := clientConn.Conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
 				log.Printf("Retry delivery failed for user %d: %v", pm.UserID, err)
-				// Mark for next retry
-				attempts := pm.Attempts + 1
-				delay := h.baseRetryDelay * time.Duration(1<<uint(attempts))
-				nextRetry := time.Now().Add(delay)
-				h.pendingMessageRepo.MarkAttempted(pm.ID, attempts, &nextRetry)
 			} else {
-				// Successfully delivered, remove from queue
-				log.Printf("Successfully delivered pending message %d to user %d", pm.ID, pm.UserID)
-				h.pendingMessageRepo.Delete(pm.ID)
+				log.Printf("Successfully pushed pending message %d to user %d socket. Waiting for ACK.", pm.ID, pm.UserID)
 			}
+
+			// Always mark as attempted and backoff.
+			// The actual removal from queue will happen when the client sends a MessageAck.
+			attempts := pm.Attempts + 1
+			delay := h.baseRetryDelay * time.Duration(1<<uint(attempts))
+			nextRetry := time.Now().Add(delay)
+			h.pendingMessageRepo.MarkAttempted(pm.ID, attempts, &nextRetry)
 		}
 	}
 }
@@ -464,13 +477,3 @@ func (h *Hub) compressData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// decompressData decompresses gzip data
-func (h *Hub) decompressData(data []byte) ([]byte, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	return io.ReadAll(reader)
-}

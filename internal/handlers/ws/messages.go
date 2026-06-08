@@ -233,6 +233,12 @@ func (msg *MessageAck) Process(ctx *MessageContext) error {
 		return SendError(ctx.Conn, "missing_server_id", "server_id is required", "")
 	}
 
+	// Remove message from pending delivery queue since the client acknowledged it
+	if ctx.Hub != nil {
+		// Create an accessor method to handle this rather than direct field access
+		ctx.Hub.RemoveAcknowledgedMessage(ctx.UserID, msg.ServerID)
+	}
+
 	switch msg.Status {
 	case "delivered":
 		return ctx.MessageService.MarkAsDelivered(msg.ServerID)
