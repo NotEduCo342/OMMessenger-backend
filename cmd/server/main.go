@@ -131,7 +131,12 @@ func main() {
 	auth.Post("/login", authHandler.Login)
 	auth.Post("/refresh", authHandler.Refresh) // No CSRF required - protected by HttpOnly refresh token
 	auth.Post("/logout", middleware.CSRFRequired(), authHandler.Logout)
-	api.Get("/users/check-username", userHandler.CheckUsername) // Public endpoint for username check
+
+	// Public endpoint for username check with rate limiting
+	api.Get("/users/check-username", limiter.New(limiter.Config{
+		Max:        20,
+		Expiration: time.Minute,
+	}), userHandler.CheckUsername)
 
 	// Version endpoint (public - no auth required for update checks)
 	api.Get("/version", versionHandler.GetVersion)
