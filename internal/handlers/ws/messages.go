@@ -193,21 +193,17 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 		})
 	} else if msg.GroupID != nil {
 		// Broadcast to group members
-		members, err := ctx.GroupService.GetGroupMembers(*msg.GroupID)
+		memberIDs, err := ctx.GroupService.GetGroupMemberIDs(*msg.GroupID)
 		if err == nil {
-			var memberIDs []uint
-			for _, member := range members {
-				if member.ID != ctx.UserID {
-					memberIDs = append(memberIDs, member.ID)
-				}
-			}
 			for _, memberID := range memberIDs {
-				_ = ctx.Hub.SendToUserWithID(memberID, message.ID, map[string]interface{}{
-					"type":    "message",
-					"message": message.ToResponse(),
-				})
-				if ctx.MessageCache != nil {
-					_ = ctx.MessageCache.InvalidateConversationList(memberID)
+				if memberID != ctx.UserID {
+					_ = ctx.Hub.SendToUserWithID(memberID, message.ID, map[string]interface{}{
+						"type":    "message",
+						"message": message.ToResponse(),
+					})
+					if ctx.MessageCache != nil {
+						_ = ctx.MessageCache.InvalidateConversationList(memberID)
+					}
 				}
 			}
 		}
@@ -380,16 +376,16 @@ func (msg *MessageGroupRead) Process(ctx *MessageContext) error {
 	}
 
 	// Broadcast read update to group members
-	members, err := ctx.GroupService.GetGroupMembers(msg.GroupID)
+	allMemberIDs, err := ctx.GroupService.GetGroupMemberIDs(msg.GroupID)
 	if err == nil {
-		memberIDs := make([]uint, 0, len(members))
-		for _, member := range members {
-			if member.ID != ctx.UserID {
-				memberIDs = append(memberIDs, member.ID)
+		otherMemberIDs := make([]uint, 0, len(allMemberIDs))
+		for _, memberID := range allMemberIDs {
+			if memberID != ctx.UserID {
+				otherMemberIDs = append(otherMemberIDs, memberID)
 			}
 		}
-		if len(memberIDs) > 0 {
-			ctx.Hub.BroadcastToUsers(memberIDs, map[string]interface{}{
+		if len(otherMemberIDs) > 0 {
+			ctx.Hub.BroadcastToUsers(otherMemberIDs, map[string]interface{}{
 				"type":                 "group_read_update",
 				"group_id":             msg.GroupID,
 				"user_id":              ctx.UserID,

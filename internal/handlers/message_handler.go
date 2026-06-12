@@ -351,18 +351,18 @@ func (h *MessageHandler) SendGroupMessage(c *fiber.Ctx) error {
 
 	// Broadcast to group members (also queues for offline users)
 	if h.hub != nil && h.groupService != nil {
-		members, err := h.groupService.GetGroupMembers(groupID)
+		memberIDs, err := h.groupService.GetGroupMemberIDs(groupID)
 		if err == nil {
-			for _, member := range members {
-				if member.ID == userID {
+			for _, memberID := range memberIDs {
+				if memberID == userID {
 					continue
 				}
-				_ = h.hub.SendToUserWithID(member.ID, message.ID, map[string]interface{}{
+				_ = h.hub.SendToUserWithID(memberID, message.ID, map[string]interface{}{
 					"type":    "message",
 					"message": message.ToResponse(),
 				})
 				if h.messageCache != nil {
-					_ = h.messageCache.InvalidateConversationList(member.ID)
+					_ = h.messageCache.InvalidateConversationList(memberID)
 				}
 			}
 		}
