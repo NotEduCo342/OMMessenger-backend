@@ -68,7 +68,7 @@ func (r *GroupRepository) IsMember(groupID, userID uint) (bool, error) {
 		Select("1").
 		Where("group_id = ? AND user_id = ?", groupID, userID).
 		Limit(1).
-		Find(&dummy).Error
+		Scan(&dummy).Error
 	return dummy == 1, err
 }
 
