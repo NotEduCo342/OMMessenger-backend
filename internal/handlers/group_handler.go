@@ -128,6 +128,51 @@ func (h *GroupHandler) UpdateGroup(c *fiber.Ctx) error {
 	return c.JSON(group)
 }
 
+func (h *GroupHandler) GetGroup(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	group, err := h.groupService.GetGroup(uint(groupID))
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Group not found"})
+	}
+
+	userID := c.Locals("userID").(uint)
+	isMember, err := h.groupService.IsMember(uint(groupID), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to check membership"})
+	}
+	if !group.IsPublic && !isMember {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Forbidden"})
+	}
+
+	return c.JSON(group)
+}
+
+func (h *GroupHandler) CheckHandle(c *fiber.Ctx) error {
+	handle := strings.TrimSpace(c.Query("handle"))
+	if handle == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Handle is required"})
+	}
+
+	var excludeGroupID uint
+	if idStr := c.Query("exclude_group_id"); idStr != "" {
+		if id, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+			excludeGroupID = uint(id)
+		}
+	}
+
+	available, err := h.groupService.IsHandleAvailable(handle, excludeGroupID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to check handle availability"})
+	}
+
+	return c.JSON(fiber.Map{"available": available})
+}
+
+
 type AddMemberRequest struct {
 	UserID uint `json:"user_id"`
 }

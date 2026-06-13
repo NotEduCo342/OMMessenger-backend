@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -263,6 +264,7 @@ func (msg *MessageAck) Process(ctx *MessageContext) error {
 type MessageTyping struct {
 	ConversationID string `json:"conversation_id"`
 	RecipientID    *uint  `json:"recipient_id,omitempty"`
+	GroupID        *uint  `json:"group_id,omitempty"`
 	IsTyping       bool   `json:"is_typing"`
 }
 
@@ -278,7 +280,41 @@ func (msg *MessageTyping) Process(ctx *MessageContext) error {
 			"is_typing": msg.IsTyping,
 			"timestamp": time.Now().Unix(),
 		})
+		return nil
 	}
+
+	var groupID uint
+	if msg.GroupID != nil {
+		groupID = *msg.GroupID
+	} else if strings.HasPrefix(msg.ConversationID, "group_") {
+		idStr := strings.TrimPrefix(msg.ConversationID, "group_")
+		if id, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+			groupID = uint(id)
+		}
+	}
+
+	if groupID > 0 && ctx.GroupService != nil {
+		members, err := ctx.GroupService.GetGroupMembers(groupID)
+		if err == nil {
+			memberIDs := make([]uint, 0, len(members))
+			for _, m := range members {
+				if m.ID != ctx.UserID {
+					memberIDs = append(memberIDs, m.ID)
+				}
+			}
+			if len(memberIDs) > 0 {
+				ctx.Hub.BroadcastToUsers(memberIDs, map[string]interface{}{
+					"type":            "typing",
+					"sender_id":       ctx.UserID,
+					"conversation_id": fmt.Sprintf("group_%d", groupID),
+					"group_id":        groupID,
+					"is_typing":       msg.IsTyping,
+					"timestamp":       time.Now().Unix(),
+				})
+			}
+		}
+	}
+
 	return nil
 }
 

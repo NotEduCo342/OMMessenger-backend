@@ -26,6 +26,7 @@ func (r *GroupRepository) FindByID(id uint) (*models.Group, error) {
 	if err := r.db.Preload("Members").Preload("Creator").First(&group, id).Error; err != nil {
 		return nil, err
 	}
+	group.MemberCount = len(group.Members)
 	return &group, nil
 }
 
@@ -33,10 +34,12 @@ func (r *GroupRepository) FindByHandle(handle string) (*models.Group, error) {
 	var group models.Group
 	err := r.db.Where("LOWER(handle) = LOWER(?)", handle).
 		Preload("Creator").
+		Preload("Members").
 		First(&group).Error
 	if err != nil {
 		return nil, err
 	}
+	group.MemberCount = len(group.Members)
 	return &group, nil
 }
 
@@ -85,7 +88,13 @@ func (r *GroupRepository) GetUserGroups(userID uint) ([]models.Group, error) {
 	err := r.db.Joins("JOIN group_members ON group_members.group_id = groups.id").
 		Where("group_members.user_id = ?", userID).
 		Preload("Creator").
+		Preload("Members").
 		Find(&groups).Error
+	if err == nil {
+		for i := range groups {
+			groups[i].MemberCount = len(groups[i].Members)
+		}
+	}
 	return groups, err
 }
 
@@ -95,7 +104,13 @@ func (r *GroupRepository) SearchPublicGroups(query string, limit int) ([]models.
 	err := r.db.Where("is_public = true AND (LOWER(handle) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?))", q, q).
 		Limit(limit).
 		Preload("Creator").
+		Preload("Members").
 		Find(&groups).Error
+	if err == nil {
+		for i := range groups {
+			groups[i].MemberCount = len(groups[i].Members)
+		}
+	}
 	return groups, err
 }
 

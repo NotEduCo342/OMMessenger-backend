@@ -132,6 +132,7 @@ func main() {
 	auth.Post("/refresh", authHandler.Refresh) // No CSRF required - protected by HttpOnly refresh token
 	auth.Post("/logout", middleware.CSRFRequired(), authHandler.Logout)
 	api.Get("/users/check-username", userHandler.CheckUsername) // Public endpoint for username check
+	api.Get("/groups/check-handle", groupHandler.CheckHandle)   // Public endpoint for group handle check
 
 	// Version endpoint (public - no auth required for update checks)
 	api.Get("/version", versionHandler.GetVersion)
@@ -183,6 +184,7 @@ func main() {
 	protected.Post("/groups/:id/join", groupHandler.JoinGroup)
 	protected.Post("/groups/:id/leave", groupHandler.LeaveGroup)
 	protected.Put("/groups/:id", groupHandler.UpdateGroup)
+	protected.Get("/groups/:id", groupHandler.GetGroup)
 	protected.Get("/groups/:id/members", groupHandler.GetGroupMembers)
 	protected.Post("/groups/:id/members", groupHandler.AddMember)
 	protected.Delete("/groups/:id/members/:userId", groupHandler.RemoveMember)

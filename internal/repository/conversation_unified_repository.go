@@ -23,6 +23,9 @@ type ConversationUnifiedRow struct {
 	GroupID            sql.NullInt64  `gorm:"column:group_id"`
 	GroupName          sql.NullString `gorm:"column:group_name"`
 	GroupIcon          sql.NullString `gorm:"column:group_icon"`
+	GroupHandle        sql.NullString `gorm:"column:group_handle"`
+	GroupIsPublic      sql.NullBool   `gorm:"column:group_is_public"`
+	GroupCreatorID     sql.NullInt64  `gorm:"column:group_creator_id"`
 	MemberCount        sql.NullInt64  `gorm:"column:member_count"`
 	UnreadCount        int64          `gorm:"column:unread_count"`
 	MessageID          uint           `gorm:"column:message_id"`
@@ -83,6 +86,9 @@ WITH dm_ranked AS (
 		NULL::bigint AS group_id,
 		NULL::text AS group_name,
 		NULL::text AS group_icon,
+		NULL::text AS group_handle,
+		NULL::boolean AS group_is_public,
+		NULL::bigint AS group_creator_id,
 		NULL::bigint AS member_count,
 		SUM(CASE WHEN m.recipient_id = ? AND m.is_read = false THEN 1 ELSE 0 END) OVER (
 			PARTITION BY CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
@@ -134,6 +140,9 @@ group_ranked AS (
 		g.id AS group_id,
 		g.name AS group_name,
 		g.icon AS group_icon,
+		g.handle AS group_handle,
+		g.is_public AS group_is_public,
+		g.creator_id AS group_creator_id,
 		(
 			SELECT COUNT(*)
 			FROM group_members gm2
@@ -187,6 +196,9 @@ group_empty AS (
 		g.id AS group_id,
 		g.name AS group_name,
 		g.icon AS group_icon,
+		g.handle AS group_handle,
+		g.is_public AS group_is_public,
+		g.creator_id AS group_creator_id,
 		(
 			SELECT COUNT(*)
 			FROM group_members gm2

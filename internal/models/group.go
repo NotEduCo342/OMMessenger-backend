@@ -25,6 +25,7 @@ type Group struct {
 	CreatorID   uint    `gorm:"not null" json:"creator_id"`
 	IsPublic    bool    `gorm:"default:false" json:"is_public"`
 	Handle      *string `gorm:"size:32;uniqueIndex" json:"handle,omitempty"`
+	MemberCount int     `gorm:"-" json:"member_count"`
 
 	// Associations
 	Creator User          `gorm:"foreignKey:CreatorID" json:"creator"`

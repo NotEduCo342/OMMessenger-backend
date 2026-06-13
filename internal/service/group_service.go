@@ -132,6 +132,31 @@ func (s *GroupService) UpdateGroup(groupID, requesterID uint, name, description 
 	return s.groupRepo.FindByID(group.ID)
 }
 
+func (s *GroupService) IsHandleAvailable(handle string, excludeGroupID uint) (bool, error) {
+	normalized := validation.NormalizeHandle(handle)
+	if !validation.ValidateHandle(normalized) {
+		return false, nil
+	}
+
+	// 1. Ensure handle not used by a user
+	if s.userRepo != nil {
+		if _, err := s.userRepo.FindByUsername(normalized); err == nil {
+			return false, nil
+		}
+	}
+
+	// 2. Ensure handle not used by another group (excluding self)
+	if s.groupRepo != nil {
+		if existing, err := s.groupRepo.FindByHandle(normalized); err == nil {
+			if excludeGroupID == 0 || existing.ID != excludeGroupID {
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
+}
+
 func (s *GroupService) AddMemberDirectly(groupID, requesterID, userID uint) error {
 	isAdmin, err := s.IsAdmin(groupID, requesterID)
 	if err != nil {

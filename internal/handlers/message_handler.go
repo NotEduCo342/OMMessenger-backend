@@ -581,11 +581,19 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 
 		group := interface{}(nil)
 		if r.GroupID.Valid {
+			var handle *string
+			if r.GroupHandle.Valid {
+				s := r.GroupHandle.String
+				handle = &s
+			}
 			group = fiber.Map{
 				"id":           uint(r.GroupID.Int64),
 				"name":         r.GroupName.String,
 				"icon":         r.GroupIcon.String,
 				"member_count": r.MemberCount.Int64,
+				"handle":       handle,
+				"is_public":    r.GroupIsPublic.Bool,
+				"creator_id":   uint(r.GroupCreatorID.Int64),
 			}
 		}
 
