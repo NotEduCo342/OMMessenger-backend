@@ -26,23 +26,33 @@ type SendMessageInput struct {
 }
 
 func (s *MessageService) SendMessage(senderID uint, input SendMessageInput) (*models.Message, error) {
+	var recipientBlocked bool
 	if input.RecipientID != nil {
-		isBlocked, err := s.messageRepo.IsBlocked(senderID, *input.RecipientID)
+		senderBlockedRecipient, err := s.messageRepo.IsBlockedBy(senderID, *input.RecipientID)
 		if err != nil {
 			return nil, err
 		}
-		if isBlocked {
-			return nil, errors.New("cannot message this user: block is active")
+		if senderBlockedRecipient {
+			return nil, errors.New("cannot message this user: you have blocked them")
+		}
+
+		isBlockedByRecipient, err := s.messageRepo.IsBlockedBy(*input.RecipientID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		if isBlockedByRecipient {
+			recipientBlocked = true
 		}
 	}
 
 	message := &models.Message{
-		SenderID:    senderID,
-		RecipientID: input.RecipientID,
-		GroupID:     input.GroupID,
-		Content:     input.Content,
-		MessageType: input.MessageType,
-		ReplyToID:   input.ReplyToID,
+		SenderID:         senderID,
+		RecipientID:      input.RecipientID,
+		GroupID:          input.GroupID,
+		Content:          input.Content,
+		MessageType:      input.MessageType,
+		ReplyToID:        input.ReplyToID,
+		RecipientBlocked: recipientBlocked,
 	}
 
 	if message.MessageType == "" {
@@ -141,13 +151,22 @@ func (s *MessageService) CreateWithClientID(senderID uint, clientID string, reci
 
 // CreateWithClientIDAndType creates a message with client ID and message type for deduplication
 func (s *MessageService) CreateWithClientIDAndType(senderID uint, clientID string, recipientID *uint, groupID *uint, content string, messageType models.MessageType, replyToID *uint) (*models.Message, error) {
+	var recipientBlocked bool
 	if recipientID != nil {
-		isBlocked, err := s.messageRepo.IsBlocked(senderID, *recipientID)
+		senderBlockedRecipient, err := s.messageRepo.IsBlockedBy(senderID, *recipientID)
 		if err != nil {
 			return nil, err
 		}
-		if isBlocked {
-			return nil, errors.New("cannot message this user: block is active")
+		if senderBlockedRecipient {
+			return nil, errors.New("cannot message this user: you have blocked them")
+		}
+
+		isBlockedByRecipient, err := s.messageRepo.IsBlockedBy(*recipientID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		if isBlockedByRecipient {
+			recipientBlocked = true
 		}
 	}
 
@@ -156,14 +175,15 @@ func (s *MessageService) CreateWithClientIDAndType(senderID uint, clientID strin
 	}
 
 	message := &models.Message{
-		ClientID:    clientID,
-		SenderID:    senderID,
-		RecipientID: recipientID,
-		GroupID:     groupID,
-		Content:     content,
-		MessageType: messageType,
-		Status:      models.StatusSent,
-		ReplyToID:   replyToID,
+		ClientID:         clientID,
+		SenderID:         senderID,
+		RecipientID:      recipientID,
+		GroupID:          groupID,
+		Content:          content,
+		MessageType:      messageType,
+		Status:           models.StatusSent,
+		ReplyToID:        replyToID,
+		RecipientBlocked: recipientBlocked,
 	}
 
 	if err := s.messageRepo.Create(message); err != nil {

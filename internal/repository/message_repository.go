@@ -54,7 +54,8 @@ func (r *MessageRepository) FindConversation(userID1, userID2 uint, limit int) (
 
 	query := r.db.Preload("Sender").Preload("ReplyTo").
 		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
-			userID1, userID2, userID2, userID1)
+			userID1, userID2, userID2, userID1).
+		Where("NOT (recipient_id = ? AND recipient_blocked = ?)", userID1, true)
 
 	if clearedAt != nil {
 		query = query.Where("created_at > ?", *clearedAt)
@@ -77,7 +78,8 @@ func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor
 
 	query := r.db.Preload("Sender").Preload("ReplyTo").
 		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
-			userID1, userID2, userID2, userID1)
+			userID1, userID2, userID2, userID1).
+		Where("NOT (recipient_id = ? AND recipient_blocked = ?)", userID1, true)
 
 	if cursor > 0 {
 		query = query.Where("id < ?", cursor)
@@ -229,7 +231,8 @@ func (r *MessageRepository) FindMessagesSince(requestingUserID uint, conversatio
 		query = query.
 			Where("messages.group_id IS NULL").
 			Where("(messages.sender_id = ? AND messages.recipient_id = ?) OR (messages.sender_id = ? AND messages.recipient_id = ?)",
-				requestingUserID, otherUserID, otherUserID, requestingUserID)
+				requestingUserID, otherUserID, otherUserID, requestingUserID).
+			Where("NOT (messages.recipient_id = ? AND messages.recipient_blocked = ?)", requestingUserID, true)
 	case "group":
 		groupID := id
 		// Enforce group membership by joining group_members with requestingUserID.
@@ -330,6 +333,14 @@ func (r *MessageRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
 	var count int64
 	err := r.db.Table("blocks").
 		Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", userID1, userID2, userID2, userID1).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *MessageRepository) IsBlockedBy(blockerID, blockedID uint) (bool, error) {
+	var count int64
+	err := r.db.Table("blocks").
+		Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).
 		Count(&count).Error
 	return count > 0, err
 }

@@ -219,6 +219,10 @@ func (m *MockMessageRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
 	return false, nil
 }
 
+func (m *MockMessageRepository) IsBlockedBy(blockerID, blockedID uint) (bool, error) {
+	return false, nil
+}
+
 func (m *MockMessageRepository) ClearConversationForUser(userID uint, conversationID string) error {
 	return nil
 }

@@ -62,6 +62,9 @@ type Message struct {
 
 	// For encryption (optional)
 	IsEncrypted bool `gorm:"default:false" json:"is_encrypted"`
+
+	// Shadow block indicator
+	RecipientBlocked bool `gorm:"default:false;index" json:"recipient_blocked"`
 }
 
 type MessageResponse struct {
@@ -79,6 +82,7 @@ type MessageResponse struct {
 	Version       int           `json:"version"`
 	CreatedAt     time.Time     `json:"created_at"`
 	CreatedAtUnix int64         `json:"created_at_unix"`
+	RecipientBlocked bool       `json:"recipient_blocked"`
 }
 
 func (m *Message) ToResponse() MessageResponse {
@@ -97,5 +101,6 @@ func (m *Message) ToResponse() MessageResponse {
 		Version:       m.Version,
 		CreatedAt:     m.CreatedAt,
 		CreatedAtUnix: m.CreatedAt.UTC().Unix(),
+		RecipientBlocked: m.RecipientBlocked,
 	}
 }

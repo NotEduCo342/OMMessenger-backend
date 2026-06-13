@@ -160,8 +160,10 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	if msg.RecipientID != nil && ctx.MessageCache != nil {
 		_ = ctx.MessageCache.InvalidateConversation(ctx.UserID, *msg.RecipientID)
 		_ = ctx.MessageCache.InvalidateConversationList(ctx.UserID)
-		_ = ctx.MessageCache.InvalidateConversationList(*msg.RecipientID)
-		_ = ctx.MessageCache.InvalidateUnreadCount(*msg.RecipientID, ctx.UserID)
+		if !message.RecipientBlocked {
+			_ = ctx.MessageCache.InvalidateConversationList(*msg.RecipientID)
+			_ = ctx.MessageCache.InvalidateUnreadCount(*msg.RecipientID, ctx.UserID)
+		}
 	}
 	if msg.GroupID != nil && ctx.MessageCache != nil {
 		_ = ctx.MessageCache.InvalidateGroupConversation(*msg.GroupID)
@@ -186,7 +188,7 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	log.Printf("✅ ACK sent successfully")
 
 	// Forward to recipient if online
-	if msg.RecipientID != nil {
+	if msg.RecipientID != nil && !message.RecipientBlocked {
 		log.Printf("📨 Forwarding message to recipient %d...", *msg.RecipientID)
 		ctx.Hub.SendToUserWithID(*msg.RecipientID, message.ID, map[string]interface{}{
 			"type":    "message",

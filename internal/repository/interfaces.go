@@ -27,6 +27,7 @@ type UserRepositoryInterface interface {
 // MessageRepositoryInterface defines the contract for message repository operations
 type MessageRepositoryInterface interface {
 	IsBlocked(userID1, userID2 uint) (bool, error)
+	IsBlockedBy(blockerID, blockedID uint) (bool, error)
 	Create(message *models.Message) error
 	Update(message *models.Message) error
 	Delete(id uint) error

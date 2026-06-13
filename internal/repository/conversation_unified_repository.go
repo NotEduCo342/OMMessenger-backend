@@ -59,7 +59,7 @@ func (r *MessageRepository) ListConversationsUnified(userID uint, cursorCreatedA
 
 	var whereCursor string
 	args := []interface{}{
-		userID, userID, userID, userID, userID, userID, userID, userID, userID, // dm_ranked
+		userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, // dm_ranked (10 args)
 		userID, userID, userID, // group_ranked
 		userID, userID, // group_empty
 	}
@@ -118,6 +118,7 @@ WITH dm_ranked AS (
 		m.group_id IS NULL
 		AND m.recipient_id IS NOT NULL
 		AND (m.sender_id = ? OR m.recipient_id = ?)
+		AND NOT (m.recipient_id = ? AND m.recipient_blocked = true)
 		AND (dc.cleared_at IS NULL OR m.created_at > dc.cleared_at)
 ),
 group_ranked AS (

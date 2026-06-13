@@ -189,7 +189,7 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"user": user.ToResponse(),
+		"user": h.toUserResponse(c, user),
 	})
 }
 
