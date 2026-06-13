@@ -210,6 +210,9 @@ func main() {
 	)
 	app.Get("/ws", websocket.New(wsHandler.HandleWebSocket))
 
+	// Support both /api/media/* and /media/* for backwards compatibility
+	app.Get("/media/*", middleware.OriginAllowed(), middleware.AuthRequired(), mediaHandler.GetMedia)
+
 	// Health check
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
