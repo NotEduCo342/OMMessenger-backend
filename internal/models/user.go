@@ -45,6 +45,7 @@ type UserResponse struct {
 	Role     string     `json:"role"`
 	IsOnline bool       `json:"is_online"`
 	LastSeen *time.Time `json:"last_seen"`
+	IsBlocked bool       `json:"is_blocked"`
 }
 
 func (u *User) ToResponse() UserResponse {

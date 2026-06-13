@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
+	"gorm.io/gorm"
 )
 
 // MockGroupRepository is a mock implementation for tests
@@ -33,6 +34,14 @@ func (m *MockGroupRepository) Create(group *models.Group) error {
 	if group.Handle != nil {
 		m.handles[*group.Handle] = group
 	}
+	return nil
+}
+
+func (m *MockGroupRepository) Update(group *models.Group) error {
+	if _, ok := m.groups[group.ID]; !ok {
+		return gorm.ErrRecordNotFound
+	}
+	m.groups[group.ID] = group
 	return nil
 }
 
@@ -115,4 +124,16 @@ func (m *MockGroupRepository) GetUserGroups(userID uint) ([]models.Group, error)
 		}
 	}
 	return out, nil
+}
+
+func (m *MockGroupRepository) Delete(id uint) error {
+	delete(m.groups, id)
+	delete(m.memberships, id)
+	// also remove handles
+	for handle, group := range m.handles {
+		if group.ID == id {
+			delete(m.handles, handle)
+		}
+	}
+	return nil
 }

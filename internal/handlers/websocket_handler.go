@@ -57,10 +57,23 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 			log.Printf("Failed to set user %d online in DB: %v", userID, err)
 		}
 		
-		h.hub.Broadcast(map[string]interface{}{
+		excludeMap := make(map[uint]bool)
+		blockedByMe, blockedByPeer, err := h.userService.GetBlockMaps(userID)
+		if err == nil {
+			for id := range blockedByMe {
+				excludeMap[id] = true
+			}
+			for id := range blockedByPeer {
+				excludeMap[id] = true
+			}
+		}
+
+		h.hub.BroadcastFilter(map[string]interface{}{
 			"type":      "user_status",
 			"user_id":   userID,
 			"is_online": true,
+		}, func(clientID uint) bool {
+			return !excludeMap[clientID]
 		})
 	}()
 
@@ -84,10 +97,23 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 				log.Printf("Failed to set user %d offline in DB: %v", userID, err)
 			}
 
-			h.hub.Broadcast(map[string]interface{}{
+			excludeMap := make(map[uint]bool)
+			blockedByMe, blockedByPeer, err := h.userService.GetBlockMaps(userID)
+			if err == nil {
+				for id := range blockedByMe {
+					excludeMap[id] = true
+				}
+				for id := range blockedByPeer {
+					excludeMap[id] = true
+				}
+			}
+
+			h.hub.BroadcastFilter(map[string]interface{}{
 				"type":      "user_status",
 				"user_id":   userID,
 				"is_online": false,
+			}, func(clientID uint) bool {
+				return !excludeMap[clientID]
 			})
 		}()
 	}()

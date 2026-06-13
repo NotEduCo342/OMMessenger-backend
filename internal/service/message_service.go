@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
@@ -20,15 +22,27 @@ type SendMessageInput struct {
 	GroupID     *uint              `json:"group_id"`
 	Content     string             `json:"content"`
 	MessageType models.MessageType `json:"message_type"`
+	ReplyToID   *uint              `json:"reply_to_id"`
 }
 
 func (s *MessageService) SendMessage(senderID uint, input SendMessageInput) (*models.Message, error) {
+	if input.RecipientID != nil {
+		isBlocked, err := s.messageRepo.IsBlocked(senderID, *input.RecipientID)
+		if err != nil {
+			return nil, err
+		}
+		if isBlocked {
+			return nil, errors.New("cannot message this user: block is active")
+		}
+	}
+
 	message := &models.Message{
 		SenderID:    senderID,
 		RecipientID: input.RecipientID,
 		GroupID:     input.GroupID,
 		Content:     input.Content,
 		MessageType: input.MessageType,
+		ReplyToID:   input.ReplyToID,
 	}
 
 	if message.MessageType == "" {
@@ -70,6 +84,38 @@ func (s *MessageService) GetByID(messageID uint) (*models.Message, error) {
 	return s.messageRepo.FindByID(messageID)
 }
 
+func (s *MessageService) EditMessage(userID uint, messageID uint, newContent string) (*models.Message, error) {
+	message, err := s.messageRepo.FindByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if message.SenderID != userID {
+		return nil, fmt.Errorf("unauthorized to edit this message")
+	}
+	message.Content = newContent
+	message.Version++
+	
+	if err := s.messageRepo.Update(message); err != nil {
+		return nil, err
+	}
+	return message, nil
+}
+
+func (s *MessageService) DeleteMessage(userID uint, messageID uint) (*models.Message, error) {
+	message, err := s.messageRepo.FindByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if message.SenderID != userID {
+		return nil, fmt.Errorf("unauthorized to delete this message")
+	}
+	
+	if err := s.messageRepo.Delete(messageID); err != nil {
+		return nil, err
+	}
+	return message, nil
+}
+
 func (s *MessageService) MarkConversationAsRead(userID uint, peerID uint) (int64, error) {
 	return s.messageRepo.MarkConversationAsRead(userID, peerID)
 }
@@ -94,7 +140,17 @@ func (s *MessageService) CreateWithClientID(senderID uint, clientID string, reci
 }
 
 // CreateWithClientIDAndType creates a message with client ID and message type for deduplication
-func (s *MessageService) CreateWithClientIDAndType(senderID uint, clientID string, recipientID *uint, groupID *uint, content string, messageType models.MessageType) (*models.Message, error) {
+func (s *MessageService) CreateWithClientIDAndType(senderID uint, clientID string, recipientID *uint, groupID *uint, content string, messageType models.MessageType, replyToID *uint) (*models.Message, error) {
+	if recipientID != nil {
+		isBlocked, err := s.messageRepo.IsBlocked(senderID, *recipientID)
+		if err != nil {
+			return nil, err
+		}
+		if isBlocked {
+			return nil, errors.New("cannot message this user: block is active")
+		}
+	}
+
 	if messageType == "" {
 		messageType = models.TextMessage
 	}
@@ -107,6 +163,7 @@ func (s *MessageService) CreateWithClientIDAndType(senderID uint, clientID strin
 		Content:     content,
 		MessageType: messageType,
 		Status:      models.StatusSent,
+		ReplyToID:   replyToID,
 	}
 
 	if err := s.messageRepo.Create(message); err != nil {
@@ -129,11 +186,11 @@ func (s *MessageService) GetMessagesSince(requestingUserID uint, conversationID 
 	return s.messageRepo.FindMessagesSince(requestingUserID, conversationID, lastMessageID, limit)
 }
 
-func (s *MessageService) GetGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error) {
+func (s *MessageService) GetGroupMessages(requestingUserID uint, groupID uint, cursor uint, limit int) ([]models.Message, error) {
 	if limit == 0 || limit > 100 {
 		limit = 50
 	}
-	return s.messageRepo.FindGroupMessages(groupID, cursor, limit)
+	return s.messageRepo.FindGroupMessages(requestingUserID, groupID, cursor, limit)
 }
 
 func (s *MessageService) ListGroupConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]repository.GroupConversationRow, error) {
@@ -186,4 +243,12 @@ func (s *MessageService) ListRecentPeers(userID uint, limit int) ([]repository.R
 		limit = 100
 	}
 	return s.messageRepo.ListRecentPeers(userID, limit)
+}
+
+func (s *MessageService) DeleteConversationForEveryone(userID1, userID2 uint) error {
+	return s.messageRepo.DeleteConversationForEveryone(userID1, userID2)
+}
+
+func (s *MessageService) ClearConversationForUser(userID uint, conversationID string) error {
+	return s.messageRepo.ClearConversationForUser(userID, conversationID)
 }

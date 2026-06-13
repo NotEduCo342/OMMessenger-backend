@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -58,6 +59,7 @@ func (h *AvatarHandler) UploadMyAvatar(c *fiber.Ctx) error {
 		if errors.Is(err, storage.ErrInvalidImage) {
 			return httpx.BadRequest(c, "avatar_invalid", "Invalid image")
 		}
+		log.Printf("Avatar upload failed: %v", err)
 		return httpx.Internal(c, "avatar_upload_failed")
 	}
 

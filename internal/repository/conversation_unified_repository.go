@@ -59,9 +59,9 @@ func (r *MessageRepository) ListConversationsUnified(userID uint, cursorCreatedA
 
 	var whereCursor string
 	args := []interface{}{
-		userID, userID, userID, userID, userID, userID, userID, // dm_ranked peer/unread
-		userID, userID, // group_ranked member join + read state
-		userID, // group_empty member join
+		userID, userID, userID, userID, userID, userID, userID, userID, userID, // dm_ranked
+		userID, userID, userID, // group_ranked
+		userID, userID, // group_empty
 	}
 	if cursorCreatedAt != nil && cursorMessageID > 0 {
 		whereCursor = "AND (c.last_activity < ? OR (c.last_activity = ? AND c.message_id < ?))"
@@ -113,10 +113,12 @@ WITH dm_ranked AS (
 	FROM messages m
 	JOIN users peer ON peer.id = CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
 	JOIN users sender ON sender.id = m.sender_id
+	LEFT JOIN deleted_conversations dc ON dc.user_id = ? AND dc.conversation_id = 'user_' || (CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END)::text
 	WHERE
 		m.group_id IS NULL
 		AND m.recipient_id IS NOT NULL
 		AND (m.sender_id = ? OR m.recipient_id = ?)
+		AND (dc.cleared_at IS NULL OR m.created_at > dc.cleared_at)
 ),
 group_ranked AS (
 	SELECT
@@ -167,7 +169,9 @@ group_ranked AS (
 	JOIN groups g ON g.id = m.group_id
 	LEFT JOIN group_read_states grs ON grs.group_id = m.group_id AND grs.user_id = ?
 	JOIN users sender ON sender.id = m.sender_id
+	LEFT JOIN deleted_conversations dc ON dc.user_id = ? AND dc.conversation_id = 'group_' || m.group_id::text
 	WHERE m.group_id IS NOT NULL
+		AND (dc.cleared_at IS NULL OR m.created_at > dc.cleared_at)
 ),
 group_empty AS (
 	SELECT
@@ -214,7 +218,9 @@ group_empty AS (
 		AND NOT EXISTS (
 			SELECT 1
 			FROM messages m
+			LEFT JOIN deleted_conversations dc ON dc.user_id = ? AND dc.conversation_id = 'group_' || m.group_id::text
 			WHERE m.group_id = g.id
+				AND (dc.cleared_at IS NULL OR m.created_at > dc.cleared_at)
 		)
 ),
 combined AS (
@@ -238,5 +244,6 @@ LIMIT ?
 
 	return rows, nil
 }
+
 
 var _ = gorm.ErrRecordNotFound

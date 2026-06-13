@@ -38,6 +38,8 @@ func InitDB() (*gorm.DB, error) {
 		&models.GroupReadState{},
 		&models.PendingMessage{},
 		&models.AppVersion{},
+		&models.Block{},
+		&models.DeletedConversation{},
 	); err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
+	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
 	"github.com/noteduco342/OMMessenger-backend/internal/validation"
 )
@@ -68,7 +69,7 @@ func (h *UserHandler) UpdateProfile(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"user": user.ToResponse(),
+		"user": h.toUserResponse(c, user),
 	})
 }
 
@@ -99,7 +100,7 @@ func (h *UserHandler) GetCurrentUser(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"user": user.ToResponse(),
+		"user": h.toUserResponse(c, user),
 	})
 }
 
@@ -110,10 +111,16 @@ func (h *UserHandler) SearchUsers(c *fiber.Ctx) error {
 		return httpx.BadRequest(c, "missing_query", "Search query is required")
 	}
 
-	limit := 20
+	if len(query) < 3 {
+		return c.JSON(fiber.Map{
+			"users": []interface{}{},
+		})
+	}
+
+	limit := 10
 	if limitStr := c.Query("limit"); limitStr != "" {
-		l := c.QueryInt("limit", 20)
-		if l > 0 && l <= 50 {
+		l := c.QueryInt("limit", 10)
+		if l > 0 && l <= 10 {
 			limit = l
 		}
 	}
@@ -125,8 +132,8 @@ func (h *UserHandler) SearchUsers(c *fiber.Ctx) error {
 
 	// Convert to response format
 	responses := make([]interface{}, len(users))
-	for i, user := range users {
-		responses[i] = user.ToResponse()
+	for i := range users {
+		responses[i] = h.toUserResponse(c, &users[i])
 	}
 
 	return c.JSON(fiber.Map{
@@ -147,7 +154,7 @@ func (h *UserHandler) GetUserByUsername(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"user": user.ToResponse(),
+		"user": h.toUserResponse(c, user),
 	})
 }
 
@@ -171,7 +178,7 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 			return httpx.Error(c, fiber.StatusNotFound, "user_not_found", "User not found")
 		}
 		return c.JSON(fiber.Map{
-			"user": user.ToResponse(),
+			"user": h.toUserResponse(c, user),
 		})
 	}
 
@@ -185,3 +192,97 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 		"user": user.ToResponse(),
 	})
 }
+
+func (h *UserHandler) toUserResponse(c *fiber.Ctx, user *models.User) models.UserResponse {
+	resp := user.ToResponse()
+	userID, err := httpx.LocalUint(c, "userID")
+	if err == nil {
+		isBlocked, _ := h.userService.IsBlocker(userID, user.ID)
+		resp.IsBlocked = isBlocked
+
+		isBlockedByPeer, _ := h.userService.IsBlocker(user.ID, userID)
+		if isBlockedByPeer {
+			resp.Avatar = ""
+			resp.IsOnline = false
+			resp.LastSeen = nil
+		}
+	}
+	return resp
+}
+
+// BlockUser blocks a user
+func (h *UserHandler) BlockUser(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	targetID64, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil || targetID64 == 0 {
+		return httpx.BadRequest(c, "invalid_user_id", "Invalid user ID")
+	}
+	targetID := uint(targetID64)
+
+	if userID == targetID {
+		return httpx.BadRequest(c, "cannot_block_self", "You cannot block yourself")
+	}
+
+	err = h.userService.BlockUser(userID, targetID)
+	if err != nil {
+		return httpx.BadRequest(c, "block_failed", err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "User blocked successfully",
+	})
+}
+
+// UnblockUser unblocks a user
+func (h *UserHandler) UnblockUser(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	targetID64, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil || targetID64 == 0 {
+		return httpx.BadRequest(c, "invalid_user_id", "Invalid user ID")
+	}
+	targetID := uint(targetID64)
+
+	err = h.userService.UnblockUser(userID, targetID)
+	if err != nil {
+		return httpx.BadRequest(c, "unblock_failed", err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "User unblocked successfully",
+	})
+}
+
+// GetBlockList returns users blocked by the current user
+func (h *UserHandler) GetBlockList(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	users, err := h.userService.GetBlockedUsers(userID)
+	if err != nil {
+		return httpx.Internal(c, "get_blocks_failed")
+	}
+
+	responses := make([]models.UserResponse, len(users))
+	for i, user := range users {
+		responses[i] = user.ToResponse()
+		responses[i].IsBlocked = true
+	}
+
+	return c.JSON(fiber.Map{
+		"users": responses,
+		"count": len(responses),
+	})
+}
+

@@ -108,7 +108,7 @@ func main() {
 		log.Printf("S3 storage initialized successfully (bucket=%s)", cfg.Bucket)
 	}
 
-	avatarService := service.NewAvatarService(userRepo, s3Store)
+	avatarService := service.NewAvatarService(userRepo, groupRepo, s3Store)
 
 	// Initialize handlers
 	wsHandler := handlers.NewWebSocketHandler(messageService, userService, groupService, pendingMessageRepo, userCache, messageCache)
@@ -116,8 +116,8 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	avatarHandler := handlers.NewAvatarHandler(avatarService)
 	mediaHandler := handlers.NewMediaHandler(s3Store)
-	messageHandler := handlers.NewMessageHandler(messageService, groupService, messageCache, wsHandler.GetHub())
-	groupHandler := handlers.NewGroupHandler(groupService)
+	messageHandler := handlers.NewMessageHandler(messageService, groupService, userService, messageCache, wsHandler.GetHub())
+	groupHandler := handlers.NewGroupHandler(groupService, avatarService, wsHandler.GetHub())
 	versionHandler := handlers.NewVersionHandler(versionService)
 
 	// Public routes
@@ -157,14 +157,21 @@ func main() {
 		avatarHandler.UploadMyAvatar,
 	)
 	protected.Delete("/users/me/avatar", avatarHandler.DeleteMyAvatar)
-	protected.Get("/media/avatars/*", mediaHandler.GetAvatar)
+	protected.Get("/media/*", mediaHandler.GetMedia)
+	protected.Post("/media/attachments", mediaHandler.UploadAttachment)
 	protected.Get("/users/search", userHandler.SearchUsers)
 	protected.Get("/users/:identifier", userHandler.GetUser)
+	protected.Post("/users/block/:id", userHandler.BlockUser)
+	protected.Post("/users/unblock/:id", userHandler.UnblockUser)
+	protected.Get("/users/blocks", userHandler.GetBlockList)
 	protected.Get("/conversations", messageHandler.GetConversations)
+	protected.Delete("/conversations/:conversation_id", messageHandler.DeleteConversation)
 	protected.Get("/conversations/peers", messageHandler.GetRecentPeers)
 	protected.Post("/conversations/:peer_id/read", messageHandler.MarkConversationRead)
 	protected.Get("/messages", messageHandler.GetMessages)
 	protected.Post("/messages", messageHandler.SendMessage)
+	protected.Put("/messages/:id", messageHandler.EditMessage)
+	protected.Delete("/messages/:id", messageHandler.DeleteMessage)
 	protected.Post("/messages/sync", messageHandler.SyncMessages)
 
 	// Group routes
@@ -175,7 +182,12 @@ func main() {
 	protected.Post("/groups/handle/:handle/join", groupHandler.JoinPublicGroupByHandle)
 	protected.Post("/groups/:id/join", groupHandler.JoinGroup)
 	protected.Post("/groups/:id/leave", groupHandler.LeaveGroup)
+	protected.Put("/groups/:id", groupHandler.UpdateGroup)
 	protected.Get("/groups/:id/members", groupHandler.GetGroupMembers)
+	protected.Post("/groups/:id/members", groupHandler.AddMember)
+	protected.Delete("/groups/:id/members/:userId", groupHandler.RemoveMember)
+	protected.Post("/groups/:id/avatar", groupHandler.UploadGroupAvatar)
+	protected.Delete("/groups/:id/avatar", groupHandler.DeleteGroupAvatar)
 	protected.Post("/groups/:id/invite-links", groupHandler.CreateInviteLink)
 	protected.Post("/join/:token", groupHandler.JoinByInviteLink)
 	protected.Get("/groups/:id/messages", messageHandler.GetGroupMessages)

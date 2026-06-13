@@ -227,6 +227,32 @@ func (h *Hub) Broadcast(data interface{}) {
 	}
 }
 
+// BroadcastFilter sends data to all connected users who pass the filter check
+func (h *Hub) BroadcastFilter(data interface{}, filter func(uint) bool) {
+	h.clientsMux.RLock()
+	clients := make(map[uint]*ClientConnection, len(h.clients))
+	for id, conn := range h.clients {
+		clients[id] = conn
+	}
+	h.clientsMux.RUnlock()
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Error marshaling broadcast filter data: %v", err)
+		return
+	}
+
+	for userID, clientConn := range clients {
+		if filter != nil && !filter(userID) {
+			continue
+		}
+		if err := clientConn.Conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+			log.Printf("Error broadcasting filter to user %d: %v", userID, err)
+			h.Unregister(userID)
+		}
+	}
+}
+
 // BroadcastToUsers sends data to specific users
 func (h *Hub) BroadcastToUsers(userIDs []uint, data interface{}) {
 	jsonData, err := json.Marshal(data)

@@ -99,6 +99,7 @@ type MessageChat struct {
 	GroupID        *uint  `json:"group_id,omitempty"`
 	Content        string `json:"content"`
 	MessageType    string `json:"message_type"`
+	ReplyToID      *uint  `json:"reply_to_id,omitempty"`
 }
 
 func (msg *MessageChat) GetType() string {
@@ -148,7 +149,7 @@ func (msg *MessageChat) Process(ctx *MessageContext) error {
 	// Save message to database
 	log.Printf("💾 Saving new message to database...")
 	messageType := parseMessageType(msg.MessageType)
-	message, err := ctx.MessageService.CreateWithClientIDAndType(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content, messageType)
+	message, err := ctx.MessageService.CreateWithClientIDAndType(ctx.UserID, msg.ClientID, msg.RecipientID, msg.GroupID, msg.Content, messageType, msg.ReplyToID)
 	if err != nil {
 		log.Printf("❌ Error saving message: %v", err)
 		return SendError(ctx.Conn, "save_failed", "Failed to save message", err.Error())

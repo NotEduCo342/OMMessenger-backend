@@ -9,9 +9,14 @@ import (
 type MessageType string
 
 const (
-	TextMessage  MessageType = "text"
-	ImageMessage MessageType = "image"
-	FileMessage  MessageType = "file"
+	TextMessage    MessageType = "text"
+	ImageMessage   MessageType = "image"
+	FileMessage    MessageType = "file"
+	AudioMessage   MessageType = "audio"
+	VideoMessage   MessageType = "video"
+	VoiceMessage   MessageType = "voice"
+	StickerMessage MessageType = "sticker"
+	GifMessage     MessageType = "gif"
 )
 
 type MessageStatus string
@@ -38,6 +43,9 @@ type Message struct {
 	RecipientID *uint  `gorm:"index:idx_recipient_created;index:idx_conversation" json:"recipient_id"` // null for group messages
 	GroupID     *uint  `gorm:"index:idx_group_created" json:"group_id"`                                // null for direct messages
 	Group       *Group `gorm:"foreignKey:GroupID" json:"group,omitempty"`
+
+	ReplyToID *uint    `gorm:"index" json:"reply_to_id"`
+	ReplyTo   *Message `gorm:"foreignKey:ReplyToID" json:"reply_to,omitempty"`
 
 	Content     string      `gorm:"type:text;not null" json:"content"`
 	MessageType MessageType `gorm:"type:varchar(20);default:'text'" json:"message_type"`

@@ -30,7 +30,7 @@ func normalizeETag(v string) string {
 	return v
 }
 
-func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
+func (h *MediaHandler) GetMedia(c *fiber.Ctx) error {
 	if h.s3 == nil {
 		return httpx.Error(c, fiber.StatusServiceUnavailable, "storage_not_configured", "Storage not configured")
 	}
@@ -39,6 +39,11 @@ func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
 	key, err := storage.SafeJoinAvatarPath("", keyParam)
 	if err != nil {
 		return httpx.Error(c, fiber.StatusNotFound, "not_found", "Not found")
+	}
+
+	// Strip duplicate avatars/ prefix if present (e.g. from existing DB records that have avatars/avatars/)
+	if strings.HasPrefix(key, "avatars/avatars/") {
+		key = strings.TrimPrefix(key, "avatars/")
 	}
 
 	log.Printf("[media] avatar get start keyParam=%q key=%q", keyParam, key)
@@ -102,4 +107,55 @@ func (h *MediaHandler) GetAvatar(c *fiber.Ctx) error {
 		log.Printf("[media] avatar stream ok key=%q bytes=%d", key, n)
 	})
 	return nil
+}
+
+func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
+	if h.s3 == nil {
+		return httpx.Error(c, fiber.StatusServiceUnavailable, "storage_not_configured", "Storage not configured")
+	}
+
+	_, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	fileHeader, err := c.FormFile("attachment")
+	if err != nil {
+		return httpx.BadRequest(c, "missing_attachment", "attachment file is required")
+	}
+
+	f, err := fileHeader.Open()
+	if err != nil {
+		return httpx.BadRequest(c, "invalid_attachment", "Invalid attachment upload")
+	}
+	defer f.Close()
+
+	ext := ""
+	if idx := strings.LastIndex(fileHeader.Filename, "."); idx >= 0 {
+		ext = fileHeader.Filename[idx:]
+	}
+	
+	// We need github.com/google/uuid for this, I'll add the import via a multi_replace later if missing.
+	// For now let's just use strconv.FormatInt(time.Now().UnixNano(), 10) to avoid importing uuid directly here if not easy.
+	fileName := strconv.FormatInt(time.Now().UnixNano(), 10) + ext
+	key, err := storage.SafeJoinAvatarPath("attachments", fileName)
+	if err != nil {
+		return httpx.Internal(c, "path_error")
+	}
+
+	_, err = h.s3.PutObject(c.Context(), key, f, fileHeader.Size, fileHeader.Header.Get("Content-Type"))
+	if err != nil {
+		log.Printf("[media] attachment upload error key=%q err=%v", key, err)
+		return httpx.Internal(c, "attachment_upload_failed")
+	}
+
+	base := strings.TrimRight(strings.TrimSpace(getenv("PUBLIC_API_BASE_URL")), "/")
+	if base == "" {
+		base = strings.TrimRight(c.BaseURL(), "/") + "/api"
+	}
+	url := base + "/media/" + key
+
+	return c.JSON(fiber.Map{
+		"url": url,
+	})
 }

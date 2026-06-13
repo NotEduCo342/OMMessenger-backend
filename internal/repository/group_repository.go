@@ -17,6 +17,10 @@ func (r *GroupRepository) Create(group *models.Group) error {
 	return r.db.Create(group).Error
 }
 
+func (r *GroupRepository) Update(group *models.Group) error {
+	return r.db.Save(group).Error
+}
+
 func (r *GroupRepository) FindByID(id uint) (*models.Group, error) {
 	var group models.Group
 	if err := r.db.Preload("Members").Preload("Creator").First(&group, id).Error; err != nil {
@@ -93,4 +97,36 @@ func (r *GroupRepository) SearchPublicGroups(query string, limit int) ([]models.
 		Preload("Creator").
 		Find(&groups).Error
 	return groups, err
+}
+
+func (r *GroupRepository) Delete(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Delete group members
+		if err := tx.Where("group_id = ?", id).Delete(&models.GroupMember{}).Error; err != nil {
+			return err
+		}
+		// Delete group read states
+		if err := tx.Where("group_id = ?", id).Delete(&models.GroupReadState{}).Error; err != nil {
+			return err
+		}
+		// Delete group messages
+		var msgIDs []uint
+		if err := tx.Model(&models.Message{}).Where("group_id = ?", id).Pluck("id", &msgIDs).Error; err != nil {
+			return err
+		}
+		if len(msgIDs) > 0 {
+			if err := tx.Unscoped().Where("message_id IN ?", msgIDs).Delete(&models.PendingMessage{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Unscoped().Where("group_id = ?", id).Delete(&models.Message{}).Error; err != nil {
+			return err
+		}
+		// Delete group invite links
+		if err := tx.Where("group_id = ?", id).Delete(&models.GroupInviteLink{}).Error; err != nil {
+			return err
+		}
+		// Delete group
+		return tx.Delete(&models.Group{}, id).Error
+	})
 }

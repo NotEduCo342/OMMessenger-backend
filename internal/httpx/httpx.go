@@ -44,6 +44,10 @@ func Forbidden(c *fiber.Ctx, code string, message string) error {
 	return Error(c, fiber.StatusForbidden, code, message)
 }
 
+func NotFound(c *fiber.Ctx, code string, message string) error {
+	return Error(c, fiber.StatusNotFound, code, message)
+}
+
 func Internal(c *fiber.Ctx, code string) error {
 	return Error(c, fiber.StatusInternalServerError, code, "Internal server error")
 }

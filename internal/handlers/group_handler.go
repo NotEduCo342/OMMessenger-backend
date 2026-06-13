@@ -7,16 +7,19 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/noteduco342/OMMessenger-backend/internal/handlers/ws"
 	"github.com/noteduco342/OMMessenger-backend/internal/service"
 	"github.com/noteduco342/OMMessenger-backend/internal/validation"
 )
 
 type GroupHandler struct {
-	groupService *service.GroupService
+	groupService  *service.GroupService
+	avatarService *service.AvatarService
+	hub           *ws.Hub
 }
 
-func NewGroupHandler(groupService *service.GroupService) *GroupHandler {
-	return &GroupHandler{groupService: groupService}
+func NewGroupHandler(groupService *service.GroupService, avatarService *service.AvatarService, hub *ws.Hub) *GroupHandler {
+	return &GroupHandler{groupService: groupService, avatarService: avatarService, hub: hub}
 }
 
 type CreateGroupRequest struct {
@@ -92,6 +95,156 @@ func (h *GroupHandler) LeaveGroup(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "Left group successfully"})
+}
+
+func (h *GroupHandler) UpdateGroup(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	var req CreateGroupRequest // Reusing same fields: Name, Description, IsPublic, Handle
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if req.Name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Group name is required"})
+	}
+
+	userID := c.Locals("userID").(uint)
+	group, err := h.groupService.UpdateGroup(uint(groupID), userID, req.Name, req.Description, req.IsPublic, req.Handle)
+	if err != nil {
+		if err.Error() == "forbidden" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can edit the group"})
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "handle") || strings.Contains(msg, "public") || strings.Contains(msg, "taken") {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": msg})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update group"})
+	}
+
+	return c.JSON(group)
+}
+
+type AddMemberRequest struct {
+	UserID uint `json:"user_id"`
+}
+
+func (h *GroupHandler) AddMember(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	var req AddMemberRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	requesterID := c.Locals("userID").(uint)
+	if err := h.groupService.AddMemberDirectly(uint(groupID), requesterID, req.UserID); err != nil {
+		if err.Error() == "forbidden" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can add members"})
+		}
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.hub != nil {
+		_ = h.hub.SendToUser(req.UserID, fiber.Map{
+			"type":     "group_joined",
+			"group_id": groupID,
+		})
+	}
+
+	return c.JSON(fiber.Map{"message": "Member added successfully"})
+}
+
+func (h *GroupHandler) RemoveMember(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	targetUserID, err := strconv.ParseUint(c.Params("userId"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	requesterID := c.Locals("userID").(uint)
+	if err := h.groupService.RemoveMemberDirectly(uint(groupID), requesterID, uint(targetUserID)); err != nil {
+		if err.Error() == "forbidden" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can remove members"})
+		}
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.hub != nil {
+		_ = h.hub.SendToUser(uint(targetUserID), fiber.Map{
+			"type":     "group_left",
+			"group_id": groupID,
+		})
+	}
+
+	return c.JSON(fiber.Map{"message": "Member removed successfully"})
+}
+
+func (h *GroupHandler) UploadGroupAvatar(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	userID := c.Locals("userID").(uint)
+	isAdmin, err := h.groupService.IsAdmin(uint(groupID), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to check permissions"})
+	}
+	if !isAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can change the group avatar"})
+	}
+
+	fileHeader, err := c.FormFile("avatar")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "avatar file is required"})
+	}
+
+	f, err := fileHeader.Open()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid avatar upload"})
+	}
+	defer f.Close()
+
+	group, err := h.avatarService.UploadGroupAvatar(c.Context(), uint(groupID), f, publicAPIBaseURL(c))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to upload group avatar"})
+	}
+
+	return c.JSON(group)
+}
+
+func (h *GroupHandler) DeleteGroupAvatar(c *fiber.Ctx) error {
+	groupID, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid group ID"})
+	}
+
+	userID := c.Locals("userID").(uint)
+	isAdmin, err := h.groupService.IsAdmin(uint(groupID), userID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to check permissions"})
+	}
+	if !isAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can change the group avatar"})
+	}
+
+	group, err := h.avatarService.DeleteGroupAvatar(c.Context(), uint(groupID))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete group avatar"})
+	}
+
+	return c.JSON(group)
 }
 
 func (h *GroupHandler) GetGroupMembers(c *fiber.Ctx) error {

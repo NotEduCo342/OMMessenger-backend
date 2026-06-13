@@ -116,3 +116,77 @@ func (s *UserService) SetUserOnline(userID uint) error {
 func (s *UserService) SetUserOffline(userID uint) error {
 	return s.userRepo.UpdateOnlineStatus(userID, false)
 }
+
+func (s *UserService) BlockUser(blockerID, blockedID uint) error {
+	isBlocked, err := s.userRepo.IsBlocker(blockerID, blockedID)
+	if err != nil {
+		return err
+	}
+	if isBlocked {
+		return errors.New("user is already blocked")
+	}
+
+	_, err = s.userRepo.FindByID(blockedID)
+	if err != nil {
+		return errors.New("user to block not found")
+	}
+
+	return s.userRepo.BlockUser(blockerID, blockedID)
+}
+
+func (s *UserService) UnblockUser(blockerID, blockedID uint) error {
+	isBlocked, err := s.userRepo.IsBlocker(blockerID, blockedID)
+	if err != nil {
+		return err
+	}
+	if !isBlocked {
+		return errors.New("user is not blocked")
+	}
+
+	return s.userRepo.UnblockUser(blockerID, blockedID)
+}
+
+func (s *UserService) GetBlockedUsers(userID uint) ([]models.User, error) {
+	return s.userRepo.GetBlockedUsers(userID)
+}
+
+func (s *UserService) IsBlocked(userID1, userID2 uint) (bool, error) {
+	return s.userRepo.IsBlocked(userID1, userID2)
+}
+
+func (s *UserService) IsBlocker(blockerID, blockedID uint) (bool, error) {
+	return s.userRepo.IsBlocker(blockerID, blockedID)
+}
+
+func (s *UserService) GetBlockedUserIDs(userID uint) ([]uint, error) {
+	return s.userRepo.GetBlockerIDs(userID)
+}
+
+func (s *UserService) GetBlockRelationshipsForUser(userID uint) ([]uint, error) {
+	return s.userRepo.GetBlockRelationshipsForUser(userID)
+}
+
+func (s *UserService) GetBlockMaps(userID uint) (blockedByMe map[uint]bool, blockedByPeer map[uint]bool, err error) {
+	blockers, err := s.userRepo.GetBlockerIDs(userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	blockedList, err := s.userRepo.GetBlockedUsers(userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	blockedByMe = make(map[uint]bool)
+	for _, u := range blockedList {
+		blockedByMe[u.ID] = true
+	}
+
+	blockedByPeer = make(map[uint]bool)
+	for _, id := range blockers {
+		blockedByPeer[id] = true
+	}
+
+	return blockedByMe, blockedByPeer, nil
+}
+

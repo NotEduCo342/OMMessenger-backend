@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/noteduco342/OMMessenger-backend/internal/models"
 	"gorm.io/gorm"
@@ -21,20 +22,45 @@ func (r *MessageRepository) Create(message *models.Message) error {
 	return r.db.Create(message).Error
 }
 
+func (r *MessageRepository) Update(message *models.Message) error {
+	return r.db.Save(message).Error
+}
+
+func (r *MessageRepository) Delete(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Delete any pending messages associated with this message
+		if err := tx.Unscoped().Where("message_id = ?", id).Delete(&models.PendingMessage{}).Error; err != nil {
+			return err
+		}
+		// Then delete the message
+		return tx.Unscoped().Delete(&models.Message{}, id).Error
+	})
+}
+
 func (r *MessageRepository) FindByID(id uint) (*models.Message, error) {
 	var message models.Message
-	err := r.db.Preload("Sender").First(&message, id).Error
+	err := r.db.Preload("Sender").Preload("ReplyTo").First(&message, id).Error
 	return &message, err
 }
 
 func (r *MessageRepository) FindConversation(userID1, userID2 uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
-	err := r.db.Preload("Sender").
+	var clearedAt *time.Time
+	var dc models.DeletedConversation
+	convoID := fmt.Sprintf("user_%d", userID2)
+	if err := r.db.Where("user_id = ? AND conversation_id = ?", userID1, convoID).First(&dc).Error; err == nil {
+		clearedAt = &dc.ClearedAt
+	}
+
+	query := r.db.Preload("Sender").Preload("ReplyTo").
 		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
-			userID1, userID2, userID2, userID1).
-		Order("id DESC").
-		Limit(limit).
-		Find(&messages).Error
+			userID1, userID2, userID2, userID1)
+
+	if clearedAt != nil {
+		query = query.Where("created_at > ?", *clearedAt)
+	}
+
+	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
 
 	return messages, err
 }
@@ -42,12 +68,22 @@ func (r *MessageRepository) FindConversation(userID1, userID2 uint, limit int) (
 // FindConversationCursor fetches messages using cursor-based pagination (more efficient)
 func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
-	query := r.db.Preload("Sender").
+	var clearedAt *time.Time
+	var dc models.DeletedConversation
+	convoID := fmt.Sprintf("user_%d", userID2)
+	if err := r.db.Where("user_id = ? AND conversation_id = ?", userID1, convoID).First(&dc).Error; err == nil {
+		clearedAt = &dc.ClearedAt
+	}
+
+	query := r.db.Preload("Sender").Preload("ReplyTo").
 		Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
 			userID1, userID2, userID2, userID1)
 
 	if cursor > 0 {
 		query = query.Where("id < ?", cursor)
+	}
+	if clearedAt != nil {
+		query = query.Where("created_at > ?", *clearedAt)
 	}
 
 	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
@@ -56,12 +92,22 @@ func (r *MessageRepository) FindConversationCursor(userID1, userID2 uint, cursor
 }
 
 // FindGroupMessages fetches group messages with cursor-based pagination
-func (r *MessageRepository) FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error) {
+func (r *MessageRepository) FindGroupMessages(requestingUserID uint, groupID uint, cursor uint, limit int) ([]models.Message, error) {
 	var messages []models.Message
-	query := r.db.Preload("Sender").Where("group_id = ?", groupID)
+	var clearedAt *time.Time
+	var dc models.DeletedConversation
+	convoID := fmt.Sprintf("group_%d", groupID)
+	if err := r.db.Where("user_id = ? AND conversation_id = ?", requestingUserID, convoID).First(&dc).Error; err == nil {
+		clearedAt = &dc.ClearedAt
+	}
+
+	query := r.db.Preload("Sender").Preload("ReplyTo").Where("group_id = ?", groupID)
 
 	if cursor > 0 {
 		query = query.Where("id < ?", cursor)
+	}
+	if clearedAt != nil {
+		query = query.Where("created_at > ?", *clearedAt)
 	}
 
 	err := query.Order("id DESC").Limit(limit).Find(&messages).Error
@@ -115,7 +161,7 @@ func (r *MessageRepository) MarkConversationAsRead(userID uint, peerID uint) (in
 // FindByClientID finds a message by client ID and sender
 func (r *MessageRepository) FindByClientID(clientID string, senderID uint) (*models.Message, error) {
 	var message models.Message
-	err := r.db.Preload("Sender").
+	err := r.db.Preload("Sender").Preload("ReplyTo").
 		Where("client_id = ? AND sender_id = ?", clientID, senderID).
 		First(&message).Error
 	if err != nil {
@@ -165,7 +211,17 @@ func (r *MessageRepository) FindMessagesSince(requestingUserID uint, conversatio
 		return nil, err
 	}
 
-	query := r.db.Preload("Sender").Where("messages.id > ?", lastMessageID)
+	// Look up clear timestamp
+	var clearedAt *time.Time
+	var dc models.DeletedConversation
+	if err := r.db.Where("user_id = ? AND conversation_id = ?", requestingUserID, conversationID).First(&dc).Error; err == nil {
+		clearedAt = &dc.ClearedAt
+	}
+
+	query := r.db.Preload("Sender").Preload("ReplyTo").Where("messages.id > ?", lastMessageID)
+	if clearedAt != nil {
+		query = query.Where("messages.created_at > ?", *clearedAt)
+	}
 
 	switch kind {
 	case "user":
@@ -189,6 +245,65 @@ func (r *MessageRepository) FindMessagesSince(requestingUserID uint, conversatio
 	return messages, err
 }
 
+func (r *MessageRepository) DeleteConversationForEveryone(userID1, userID2 uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Get all message IDs in this DM
+		var msgIDs []uint
+		if err := tx.Model(&models.Message{}).
+			Where("group_id IS NULL").
+			Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+				userID1, userID2, userID2, userID1).
+			Pluck("id", &msgIDs).Error; err != nil {
+			return err
+		}
+
+		if len(msgIDs) > 0 {
+			// Delete pending messages associated with these messages
+			if err := tx.Unscoped().Where("message_id IN ?", msgIDs).Delete(&models.PendingMessage{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// Hard-delete messages from both sides
+		if err := tx.Unscoped().
+			Where("group_id IS NULL").
+			Where("(sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)",
+				userID1, userID2, userID2, userID1).
+			Delete(&models.Message{}).Error; err != nil {
+			return err
+		}
+
+		// Also clean up any DeletedConversation records for both sides
+		convoID1 := fmt.Sprintf("user_%d", userID2)
+		convoID2 := fmt.Sprintf("user_%d", userID1)
+		if err := tx.Where("(user_id = ? AND conversation_id = ?) OR (user_id = ? AND conversation_id = ?)",
+			userID1, convoID1, userID2, convoID2).
+			Delete(&models.DeletedConversation{}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (r *MessageRepository) ClearConversationForUser(userID uint, conversationID string) error {
+	var dc models.DeletedConversation
+	err := r.db.Where("user_id = ? AND conversation_id = ?", userID, conversationID).First(&dc).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			dc = models.DeletedConversation{
+				UserID:         userID,
+				ConversationID: conversationID,
+				ClearedAt:      time.Now(),
+			}
+			return r.db.Create(&dc).Error
+		}
+		return err
+	}
+	dc.ClearedAt = time.Now()
+	return r.db.Save(&dc).Error
+}
+
 // GetLatestGroupMessageID returns the latest message ID in a group (0 if none)
 func (r *MessageRepository) GetLatestGroupMessageID(groupID uint) (uint, error) {
 	var maxID uint
@@ -210,3 +325,12 @@ func (r *MessageRepository) IsMessageInGroup(messageID uint, groupID uint) (bool
 		Find(&dummy).Error
 	return dummy == 1, err
 }
+
+func (r *MessageRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
+	var count int64
+	err := r.db.Table("blocks").
+		Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", userID1, userID2, userID2, userID1).
+		Count(&count).Error
+	return count > 0, err
+}
+

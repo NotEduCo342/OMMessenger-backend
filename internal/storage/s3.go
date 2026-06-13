@@ -65,6 +65,12 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		return nil, err
 	}
 
+	ctx := context.Background()
+	exists, err := cl.BucketExists(ctx, cfg.Bucket)
+	if err == nil && !exists {
+		_ = cl.MakeBucket(ctx, cfg.Bucket, minio.MakeBucketOptions{Region: cfg.Region})
+	}
+
 	return &S3Storage{client: cl, bucket: cfg.Bucket}, nil
 }
 

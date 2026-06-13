@@ -83,6 +83,105 @@ func (s *GroupService) CreateGroupWithVisibility(name, description string, creat
 	return s.groupRepo.FindByID(group.ID)
 }
 
+func (s *GroupService) UpdateGroup(groupID, requesterID uint, name, description string, isPublic bool, handle string) (*models.Group, error) {
+	isAdmin, err := s.IsAdmin(groupID, requesterID)
+	if err != nil {
+		return nil, err
+	}
+	if !isAdmin {
+		return nil, errors.New("forbidden")
+	}
+
+	group, err := s.groupRepo.FindByID(groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	group.Name = name
+	group.Description = description
+	group.IsPublic = isPublic
+
+	if isPublic {
+		if handle == "" {
+			return nil, errors.New("handle is required for public groups")
+		}
+		if s.userRepo == nil {
+			return nil, errors.New("user repository not configured")
+		}
+		normalized := validation.NormalizeHandle(handle)
+		if !validation.ValidateHandle(normalized) {
+			return nil, errors.New("invalid handle")
+		}
+		// Ensure handle not used by a user
+		if _, err := s.userRepo.FindByUsername(normalized); err == nil {
+			return nil, errors.New("handle already taken")
+		}
+		// Ensure handle not used by another group (excluding self)
+		if existing, err := s.groupRepo.FindByHandle(normalized); err == nil && existing.ID != groupID {
+			return nil, errors.New("handle already taken")
+		}
+		group.Handle = &normalized
+	} else {
+		group.Handle = nil
+	}
+
+	if err := s.groupRepo.Update(group); err != nil {
+		return nil, err
+	}
+
+	return s.groupRepo.FindByID(group.ID)
+}
+
+func (s *GroupService) AddMemberDirectly(groupID, requesterID, userID uint) error {
+	isAdmin, err := s.IsAdmin(groupID, requesterID)
+	if err != nil {
+		return err
+	}
+	if !isAdmin {
+		return errors.New("forbidden")
+	}
+
+	isMember, err := s.groupRepo.IsMember(groupID, userID)
+	if err != nil {
+		return err
+	}
+	if isMember {
+		return errors.New("user is already a member of this group")
+	}
+
+	if err := s.groupRepo.AddMember(groupID, userID, models.RoleMember); err != nil {
+		return err
+	}
+	if s.groupReadStateRepo != nil {
+		_ = s.groupReadStateRepo.EnsureForMember(groupID, userID)
+	}
+	return nil
+}
+
+func (s *GroupService) RemoveMemberDirectly(groupID, requesterID, userID uint) error {
+	isAdmin, err := s.IsAdmin(groupID, requesterID)
+	if err != nil {
+		return err
+	}
+	if !isAdmin {
+		return errors.New("forbidden")
+	}
+
+	// Optionally prevent removing the last admin
+	if requesterID == userID {
+		// Can't remove yourself via this endpoint, use LeaveGroup
+		return errors.New("cannot remove yourself using this endpoint")
+	}
+
+	if err := s.groupRepo.RemoveMember(groupID, userID); err != nil {
+		return err
+	}
+	if s.groupReadStateRepo != nil {
+		_ = s.groupReadStateRepo.DeleteForMember(groupID, userID)
+	}
+	return nil
+}
+
 func (s *GroupService) JoinGroup(groupID, userID uint) error {
 	group, err := s.groupRepo.FindByID(groupID)
 	if err != nil {
@@ -154,6 +253,10 @@ func (s *GroupService) GetUserGroups(userID uint) ([]models.Group, error) {
 
 func (s *GroupService) GetGroup(groupID uint) (*models.Group, error) {
 	return s.groupRepo.FindByID(groupID)
+}
+
+func (s *GroupService) DeleteGroup(groupID uint) error {
+	return s.groupRepo.Delete(groupID)
 }
 
 func (s *GroupService) GetPublicGroupByHandle(handle string) (*models.Group, error) {

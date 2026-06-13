@@ -1,0 +1,127 @@
+name: dev
+services:
+  backend:
+    depends_on:
+      minio:
+        condition: service_started
+        required: true
+      postgres:
+        condition: service_started
+        required: true
+      redis:
+        condition: service_started
+        required: true
+    deploy:
+      replicas: 1
+    environment:
+      ALLOWED_ORIGINS: http://localhost:3000
+      DB_HOST: postgres
+      DB_NAME: om_messenger
+      DB_PASSWORD: dev_postgres_pass
+      DB_PORT: "5432"
+      DB_SSLMODE: disable
+      DB_USER: dev_postgres
+      JWT_SECRET: dev_secret_key
+      PORT: "8080"
+      PUBLIC_API_BASE_URL: http://localhost:8080/api
+      REDIS_ADDR: redis:6379
+      REDIS_DB: "0"
+      REDIS_PASSWORD: ""
+      S3_ACCESS_KEY: dev_minio
+      S3_BUCKET: om-avatars
+      S3_ENDPOINT: minio:9000
+      S3_SECRET_KEY: dev_minio_pass_123
+      S3_USE_SSL: "false"
+    image: om-backend-dev:latest
+    networks:
+      om-backend-net: null
+    ports:
+      - mode: ingress
+        target: 8080
+        published: "8082"
+        protocol: tcp
+  minio:
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    deploy:
+      replicas: 1
+    environment:
+      MINIO_BROWSER: "on"
+      MINIO_ROOT_PASSWORD: dev_minio_pass_123
+      MINIO_ROOT_USER: dev_minio
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9000/minio/health/live
+      timeout: 10s
+      interval: 30s
+      retries: 3
+    image: minio/minio:latest
+    networks:
+      om-backend-net: null
+    ports:
+      - mode: ingress
+        target: 9000
+        published: "9000"
+        protocol: tcp
+      - mode: ingress
+        target: 9001
+        published: "9001"
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: minio_data
+        target: /data
+        volume: {}
+  postgres:
+    deploy:
+      replicas: 1
+    environment:
+      POSTGRES_DB: om_messenger
+      POSTGRES_PASSWORD: dev_postgres_pass
+      POSTGRES_USER: dev_postgres
+    image: postgres:15-alpine
+    networks:
+      om-backend-net: null
+    ports:
+      - mode: ingress
+        target: 5432
+        published: "5432"
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
+        volume: {}
+  redis:
+    deploy:
+      replicas: 1
+    image: valkey/valkey:8.1-alpine
+    networks:
+      om-backend-net: null
+    ports:
+      - mode: ingress
+        target: 6379
+        published: "6379"
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: redis_data
+        target: /data
+        volume: {}
+networks:
+  om-backend-net:
+    name: dev_om-backend-net
+    driver: overlay
+volumes:
+  minio_data:
+    name: dev_minio_data
+  postgres_data:
+    name: dev_postgres_data
+  redis_data:
+    name: dev_redis_data

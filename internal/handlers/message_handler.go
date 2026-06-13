@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -19,14 +20,16 @@ import (
 type MessageHandler struct {
 	messageService *service.MessageService
 	groupService   *service.GroupService
+	userService    *service.UserService
 	messageCache   *cache.MessageCache
 	hub            *ws.Hub
 }
 
-func NewMessageHandler(messageService *service.MessageService, groupService *service.GroupService, messageCache *cache.MessageCache, hub *ws.Hub) *MessageHandler {
+func NewMessageHandler(messageService *service.MessageService, groupService *service.GroupService, userService *service.UserService, messageCache *cache.MessageCache, hub *ws.Hub) *MessageHandler {
 	return &MessageHandler{
 		messageService: messageService,
 		groupService:   groupService,
+		userService:    userService,
 		messageCache:   messageCache,
 		hub:            hub,
 	}
@@ -36,6 +39,7 @@ type SendGroupMessageRequest struct {
 	ClientID    string `json:"client_id"`
 	Content     string `json:"content"`
 	MessageType string `json:"message_type"`
+	ReplyToID   *uint  `json:"reply_to_id"`
 }
 
 type MarkGroupReadRequest struct {
@@ -86,10 +90,108 @@ func (h *MessageHandler) SendMessage(c *fiber.Ctx) error {
 
 	message, err := h.messageService.SendMessage(userID, input)
 	if err != nil {
+		if strings.Contains(err.Error(), "block is active") {
+			return httpx.Forbidden(c, "block_active", "You cannot send messages to this user")
+		}
 		return httpx.Internal(c, "send_message_failed")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(message.ToResponse())
+}
+
+type UpdateMessageRequest struct {
+	Content string `json:"content"`
+}
+
+func (h *MessageHandler) EditMessage(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	messageID64, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil || messageID64 == 0 {
+		return httpx.BadRequest(c, "invalid_message_id", "Invalid message id")
+	}
+
+	var input UpdateMessageRequest
+	if err := c.BodyParser(&input); err != nil {
+		return httpx.BadRequest(c, "invalid_request_body", "Invalid request body")
+	}
+
+	input.Content = validation.TrimAndLimit(input.Content, validation.MaxMessageLength())
+	if input.Content == "" {
+		return httpx.BadRequest(c, "missing_content", "Content is required")
+	}
+
+	message, err := h.messageService.EditMessage(userID, uint(messageID64), input.Content)
+	if err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			return httpx.Forbidden(c, "unauthorized_edit", "Cannot edit this message")
+		}
+		return httpx.Internal(c, "edit_message_failed")
+	}
+
+	// Broadcast the edit
+	if h.hub != nil {
+		h.broadcastMessageEvent(message, "message_edit")
+	}
+
+	return c.JSON(message.ToResponse())
+}
+
+func (h *MessageHandler) DeleteMessage(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	messageID64, err := strconv.ParseUint(c.Params("id"), 10, 32)
+	if err != nil || messageID64 == 0 {
+		return httpx.BadRequest(c, "invalid_message_id", "Invalid message id")
+	}
+
+	// Fetch message first to broadcast later
+	message, err := h.messageService.GetByID(uint(messageID64))
+	if err != nil {
+		return httpx.NotFound(c, "message_not_found", "Message not found")
+	}
+
+	_, err = h.messageService.DeleteMessage(userID, uint(messageID64))
+	if err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			return httpx.Forbidden(c, "unauthorized_delete", "Cannot delete this message")
+		}
+		return httpx.Internal(c, "delete_message_failed")
+	}
+
+	// Broadcast the delete
+	if h.hub != nil {
+		h.broadcastMessageEvent(message, "message_delete")
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *MessageHandler) broadcastMessageEvent(message *models.Message, eventType string) {
+	if message.GroupID != nil {
+		members, err := h.groupService.GetGroupMembers(*message.GroupID)
+		if err == nil {
+			for _, member := range members {
+				if member.ID != message.SenderID {
+					_ = h.hub.SendToUserWithID(member.ID, message.ID, map[string]interface{}{
+						"type":    eventType,
+						"message": message.ToResponse(),
+					})
+				}
+			}
+		}
+	} else if message.RecipientID != nil {
+		_ = h.hub.SendToUserWithID(*message.RecipientID, message.ID, map[string]interface{}{
+			"type":    eventType,
+			"message": message.ToResponse(),
+		})
+	}
 }
 
 func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
@@ -147,9 +249,17 @@ func (h *MessageHandler) GetMessages(c *fiber.Ctx) error {
 	}
 
 	// Convert to response format
+	blockedByMe, blockedByPeer, _ := h.userService.GetBlockMaps(userID)
 	responses := make([]interface{}, len(messages))
 	for i, msg := range messages {
-		responses[i] = msg.ToResponse()
+		resp := msg.ToResponse()
+		if blockedByPeer[msg.SenderID] {
+			resp.Sender.Avatar = ""
+			resp.Sender.IsOnline = false
+			resp.Sender.LastSeen = nil
+		}
+		resp.Sender.IsBlocked = blockedByMe[msg.SenderID]
+		responses[i] = resp
 	}
 
 	// Add cursor info for pagination
@@ -202,7 +312,7 @@ func (h *MessageHandler) GetGroupMessages(c *fiber.Ctx) error {
 		if err != nil {
 			return httpx.BadRequest(c, "invalid_cursor", "Invalid cursor")
 		}
-		messages, err = h.messageService.GetGroupMessages(groupID, uint(cursor), limit)
+		messages, err = h.messageService.GetGroupMessages(userID, groupID, uint(cursor), limit)
 		if err != nil {
 			return httpx.Internal(c, "fetch_messages_failed")
 		}
@@ -213,7 +323,7 @@ func (h *MessageHandler) GetGroupMessages(c *fiber.Ctx) error {
 				messages = messages[:limit]
 			}
 		} else {
-			messages, err = h.messageService.GetGroupMessages(groupID, 0, limit)
+			messages, err = h.messageService.GetGroupMessages(userID, groupID, 0, limit)
 			if err != nil {
 				return httpx.Internal(c, "fetch_messages_failed")
 			}
@@ -223,9 +333,17 @@ func (h *MessageHandler) GetGroupMessages(c *fiber.Ctx) error {
 		}
 	}
 
+	blockedByMe, blockedByPeer, _ := h.userService.GetBlockMaps(userID)
 	responses := make([]interface{}, len(messages))
 	for i, msg := range messages {
-		responses[i] = msg.ToResponse()
+		resp := msg.ToResponse()
+		if blockedByPeer[msg.SenderID] {
+			resp.Sender.Avatar = ""
+			resp.Sender.IsOnline = false
+			resp.Sender.LastSeen = nil
+		}
+		resp.Sender.IsBlocked = blockedByMe[msg.SenderID]
+		responses[i] = resp
 	}
 
 	result := fiber.Map{
@@ -339,7 +457,7 @@ func (h *MessageHandler) SendGroupMessage(c *fiber.Ctx) error {
 	}
 
 	msgType := parseMessageType(input.MessageType)
-	message, err := h.messageService.CreateWithClientIDAndType(userID, input.ClientID, nil, &groupID, input.Content, msgType)
+	message, err := h.messageService.CreateWithClientIDAndType(userID, input.ClientID, nil, &groupID, input.Content, msgType, input.ReplyToID)
 	if err != nil {
 		return httpx.Internal(c, "send_message_failed")
 	}
@@ -420,6 +538,8 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 		return httpx.Internal(c, "fetch_conversations_failed")
 	}
 
+	blockedByMe, blockedByPeer, _ := h.userService.GetBlockMaps(userID)
+
 	hasMore := len(rows) > limit
 	if hasMore {
 		rows = rows[:limit]
@@ -436,14 +556,26 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 
 		peer := interface{}(nil)
 		if r.PeerID.Valid {
+			peerID := uint(r.PeerID.Int64)
+			avatar := r.PeerAvatar.String
+			isOnline := r.PeerIsOnline.Bool
+			lastSeen := r.PeerLastSeen
+
+			if blockedByPeer[peerID] {
+				avatar = ""
+				isOnline = false
+				lastSeen = nil
+			}
+
 			peer = fiber.Map{
-				"id":        uint(r.PeerID.Int64),
-				"username":  r.PeerUsername.String,
-				"email":     r.PeerEmail.String,
-				"full_name": r.PeerFullName.String,
-				"avatar":    r.PeerAvatar.String,
-				"is_online": r.PeerIsOnline.Bool,
-				"last_seen": r.PeerLastSeen,
+				"id":         peerID,
+				"username":   r.PeerUsername.String,
+				"email":      r.PeerEmail.String,
+				"full_name":  r.PeerFullName.String,
+				"avatar":     avatar,
+				"is_online":  isOnline,
+				"last_seen":  lastSeen,
+				"is_blocked": blockedByMe[peerID],
 			}
 		}
 
@@ -468,18 +600,29 @@ func (h *MessageHandler) GetConversations(c *fiber.Ctx) error {
 
 		var lastMessage interface{} = nil
 		if r.MessageID != 0 {
+			senderAvatar := r.SenderAvatar
+			senderIsOnline := r.SenderIsOnline
+			senderLastSeen := r.SenderLastSeen
+
+			if blockedByPeer[r.MessageSenderID] {
+				senderAvatar = ""
+				senderIsOnline = false
+				senderLastSeen = nil
+			}
+
 			lastMessage = fiber.Map{
 				"id":        r.MessageID,
 				"client_id": r.MessageClientID,
 				"sender_id": r.MessageSenderID,
 				"sender": fiber.Map{
-					"id":        r.SenderID,
-					"username":  r.SenderUsername,
-					"email":     r.SenderEmail,
-					"full_name": r.SenderFullName,
-					"avatar":    r.SenderAvatar,
-					"is_online": r.SenderIsOnline,
-					"last_seen": r.SenderLastSeen,
+					"id":         r.SenderID,
+					"username":   r.SenderUsername,
+					"email":      r.SenderEmail,
+					"full_name":  r.SenderFullName,
+					"avatar":     senderAvatar,
+					"is_online":  senderIsOnline,
+					"last_seen":  senderLastSeen,
+					"is_blocked": blockedByMe[r.MessageSenderID],
 				},
 				"recipient_id":    recipientID,
 				"group_id":        groupID,
@@ -548,17 +691,31 @@ func (h *MessageHandler) GetRecentPeers(c *fiber.Ctx) error {
 		return httpx.Internal(c, "fetch_recent_peers_failed")
 	}
 
+	blockedByMe, blockedByPeer, _ := h.userService.GetBlockMaps(userID)
+
 	peers := make([]fiber.Map, 0, len(rows))
 	for _, r := range rows {
+		peerID := r.PeerID
+		avatar := r.PeerAvatar
+		isOnline := r.PeerIsOnline
+		lastSeen := r.PeerLastSeen
+
+		if blockedByPeer[peerID] {
+			avatar = ""
+			isOnline = false
+			lastSeen = nil
+		}
+
 		peers = append(peers, fiber.Map{
 			"peer": fiber.Map{
-				"id":        r.PeerID,
-				"username":  r.PeerUsername,
-				"email":     r.PeerEmail,
-				"full_name": r.PeerFullName,
-				"avatar":    r.PeerAvatar,
-				"is_online": r.PeerIsOnline,
-				"last_seen": r.PeerLastSeen,
+				"id":         peerID,
+				"username":   r.PeerUsername,
+				"email":      r.PeerEmail,
+				"full_name":  r.PeerFullName,
+				"avatar":     avatar,
+				"is_online":  isOnline,
+				"last_seen":  lastSeen,
+				"is_blocked": blockedByMe[peerID],
 			},
 			"last_message_id": r.MessageID,
 			"last_activity":   r.LastActivity,
@@ -716,4 +873,127 @@ func (h *MessageHandler) GetGroupReadState(c *fiber.Ctx) error {
 		"my_last_read_message_id": myState.LastReadMessageID,
 		"members":                 members,
 	})
+}
+
+func (h *MessageHandler) DeleteConversation(c *fiber.Ctx) error {
+	userID, err := httpx.LocalUint(c, "userID")
+	if err != nil {
+		return httpx.Unauthorized(c, "unauthorized", "Unauthorized")
+	}
+
+	conversationID := c.Params("conversation_id")
+	if conversationID == "" {
+		return httpx.BadRequest(c, "missing_conversation_id", "conversation_id is required")
+	}
+
+	everyone := c.Query("everyone") == "true"
+
+	kind, id, err := parseConversationID(conversationID)
+	if err != nil {
+		return httpx.BadRequest(c, "invalid_conversation_id", "Invalid conversation_id format")
+	}
+
+	if everyone {
+		if kind == "user" {
+			peerID := id
+			if err := h.messageService.DeleteConversationForEveryone(userID, peerID); err != nil {
+				return httpx.Internal(c, "delete_conversation_failed")
+			}
+		} else if kind == "group" {
+			groupID := id
+			group, err := h.groupService.GetGroup(groupID)
+			if err != nil {
+				return httpx.BadRequest(c, "group_not_found", "Group not found")
+			}
+			if group.CreatorID != userID {
+				return httpx.Forbidden(c, "not_group_owner", "Only the group owner can delete the conversation for everyone")
+			}
+
+			if err := h.groupService.DeleteGroup(groupID); err != nil {
+				return httpx.Internal(c, "delete_group_failed")
+			}
+		}
+	} else {
+		if err := h.messageService.ClearConversationForUser(userID, conversationID); err != nil {
+			return httpx.Internal(c, "clear_conversation_failed")
+		}
+	}
+
+	// Invalidate cache
+	if h.messageCache != nil {
+		_ = h.messageCache.InvalidateConversationList(userID)
+		if kind == "user" {
+			peerID := id
+			_ = h.messageCache.InvalidateConversation(userID, peerID)
+			_ = h.messageCache.InvalidateConversation(peerID, userID)
+			if everyone {
+				_ = h.messageCache.InvalidateConversationList(peerID)
+			}
+		}
+	}
+
+	// Broadcast websocket event
+	h.broadcastConversationDelete(userID, conversationID, everyone, id)
+
+	return c.JSON(fiber.Map{"status": "success"})
+}
+
+func (h *MessageHandler) broadcastConversationDelete(userID uint, conversationID string, everyone bool, id uint) {
+	// Send to deleting user
+	_ = h.hub.SendToUserWithID(userID, 0, map[string]interface{}{
+		"type":            "conversation_delete",
+		"conversation_id": conversationID,
+		"everyone":        everyone,
+	})
+
+	kind, _, _ := parseConversationID(conversationID)
+
+	if everyone {
+		if kind == "user" {
+			peerID := id
+			_ = h.hub.SendToUserWithID(peerID, 0, map[string]interface{}{
+				"type":            "conversation_delete",
+				"conversation_id": fmt.Sprintf("user_%d", userID),
+				"everyone":        true,
+			})
+		} else if kind == "group" {
+			groupID := id
+			members, err := h.groupService.GetGroupMembers(groupID)
+			if err == nil {
+				for _, member := range members {
+					if member.ID != userID {
+						_ = h.hub.SendToUserWithID(member.ID, 0, map[string]interface{}{
+							"type":            "conversation_delete",
+							"conversation_id": conversationID,
+							"everyone":        true,
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+func parseConversationID(conversationID string) (kind string, id uint, err error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return "", 0, fmt.Errorf("empty conversation_id")
+	}
+	if strings.HasPrefix(conversationID, "user_") {
+		s := strings.TrimPrefix(conversationID, "user_")
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid user conversation_id: %w", err)
+		}
+		return "user", uint(v), nil
+	}
+	if strings.HasPrefix(conversationID, "group_") {
+		s := strings.TrimPrefix(conversationID, "group_")
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid group conversation_id: %w", err)
+		}
+		return "group", uint(v), nil
+	}
+	return "", 0, fmt.Errorf("unknown conversation_id format")
 }

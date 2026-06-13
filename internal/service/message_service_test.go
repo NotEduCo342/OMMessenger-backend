@@ -81,7 +81,7 @@ func (m *MockMessageRepository) FindConversationCursor(userID1, userID2 uint, cu
 	return result, nil
 }
 
-func (m *MockMessageRepository) FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error) {
+func (m *MockMessageRepository) FindGroupMessages(requestingUserID uint, groupID uint, cursor uint, limit int) ([]models.Message, error) {
 	var result []models.Message
 	count := 0
 	for _, msg := range m.messages {
@@ -208,6 +208,28 @@ func (m *MockMessageRepository) MarkConversationAsRead(userID uint, peerID uint)
 		}
 	}
 	return cleared, nil
+}
+
+func (m *MockMessageRepository) Delete(id uint) error {
+	delete(m.messages, id)
+	return nil
+}
+
+func (m *MockMessageRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
+	return false, nil
+}
+
+func (m *MockMessageRepository) ClearConversationForUser(userID uint, conversationID string) error {
+	return nil
+}
+
+func (m *MockMessageRepository) DeleteConversationForEveryone(userID1, userID2 uint) error {
+	return nil
+}
+
+func (m *MockMessageRepository) Update(message *models.Message) error {
+	m.messages[message.ID] = message
+	return nil
 }
 
 // Tests for MessageService

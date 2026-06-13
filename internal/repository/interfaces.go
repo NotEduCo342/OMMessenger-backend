@@ -15,17 +15,29 @@ type UserRepositoryInterface interface {
 	Update(user *models.User) error
 	UpdateOnlineStatus(userID uint, isOnline bool) error
 	SearchUsers(query string, limit int) ([]models.User, error)
+	BlockUser(blockerID, blockedID uint) error
+	UnblockUser(blockerID, blockedID uint) error
+	IsBlocked(userID1, userID2 uint) (bool, error)
+	IsBlocker(blockerID, blockedID uint) (bool, error)
+	GetBlockedUsers(userID uint) ([]models.User, error)
+	GetBlockRelationshipsForUser(userID uint) ([]uint, error)
+	GetBlockerIDs(userID uint) ([]uint, error)
 }
 
 // MessageRepositoryInterface defines the contract for message repository operations
 type MessageRepositoryInterface interface {
+	IsBlocked(userID1, userID2 uint) (bool, error)
 	Create(message *models.Message) error
+	Update(message *models.Message) error
+	Delete(id uint) error
 	FindByID(id uint) (*models.Message, error)
 	FindByClientID(clientID string, senderID uint) (*models.Message, error)
 	FindConversation(userID1, userID2 uint, limit int) ([]models.Message, error)
 	FindConversationCursor(userID1, userID2 uint, cursor uint, limit int) ([]models.Message, error)
-	FindGroupMessages(groupID uint, cursor uint, limit int) ([]models.Message, error)
+	FindGroupMessages(requestingUserID uint, groupID uint, cursor uint, limit int) ([]models.Message, error)
 	FindMessagesSince(requestingUserID uint, conversationID string, lastMessageID uint, limit int) ([]models.Message, error)
+	DeleteConversationForEveryone(userID1, userID2 uint) error
+	ClearConversationForUser(userID uint, conversationID string) error
 	GetLatestDirectMessageID(userID1, userID2 uint) (uint, error)
 	ListDirectConversations(userID uint, cursorCreatedAt *time.Time, cursorMessageID uint, limit int) ([]ConversationRow, error)
 	ListRecentPeers(userID uint, limit int) ([]RecentPeerRow, error)
@@ -48,6 +60,7 @@ type RefreshTokenRepositoryInterface interface {
 // GroupRepositoryInterface defines the contract for group repository operations
 type GroupRepositoryInterface interface {
 	Create(group *models.Group) error
+	Update(group *models.Group) error
 	FindByID(id uint) (*models.Group, error)
 	FindByHandle(handle string) (*models.Group, error)
 	SearchPublicGroups(query string, limit int) ([]models.Group, error)
@@ -57,6 +70,7 @@ type GroupRepositoryInterface interface {
 	IsMember(groupID, userID uint) (bool, error)
 	GetMemberRole(groupID, userID uint) (models.GroupRole, error)
 	GetUserGroups(userID uint) ([]models.Group, error)
+	Delete(id uint) error
 }
 
 // GroupInviteRepositoryInterface defines the contract for group invite link operations

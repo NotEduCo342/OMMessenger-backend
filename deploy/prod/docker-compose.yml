@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - om-backend-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER: "on"
+      MINIO_API_REQUESTS_MAX: 10000
+    volumes:
+      - minio_data:/data
+    networks:
+      - om-backend-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+
+  redis:
+    image: valkey/valkey:8.1-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - om-backend-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+
+  backend:
+    image: om-backend:latest # Build this manually or push to a registry for swarm
+    environment:
+      PORT: 8080
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET}
+      
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+      S3_ENDPOINT: minio:9000
+      S3_USE_SSL: "false" # Set to true if minio is behind a proxy with SSL
+      S3_BUCKET: ${MINIO_BUCKET_NAME}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 0
+    depends_on:
+      - postgres
+      - minio
+      - redis
+    networks:
+      - om-backend-net
+      - proxy-net
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+volumes:
+  postgres_data:
+  minio_data:
+  redis_data:
+
+networks:
+  om-backend-net:
+    driver: overlay
+  proxy-net:
+    external: true
+    name: chamran-deploy_proxy-network

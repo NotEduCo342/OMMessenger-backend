@@ -80,6 +80,34 @@ func (m *MockUserRepository) SearchUsers(query string, limit int) ([]models.User
 	return results, nil
 }
 
+func (m *MockUserRepository) BlockUser(blockerID, blockedID uint) error {
+	return nil
+}
+
+func (m *MockUserRepository) UnblockUser(blockerID, blockedID uint) error {
+	return nil
+}
+
+func (m *MockUserRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
+	return false, nil
+}
+
+func (m *MockUserRepository) IsBlocker(blockerID, blockedID uint) (bool, error) {
+	return false, nil
+}
+
+func (m *MockUserRepository) GetBlockedUsers(userID uint) ([]models.User, error) {
+	return []models.User{}, nil
+}
+
+func (m *MockUserRepository) GetBlockRelationshipsForUser(userID uint) ([]uint, error) {
+	return []uint{}, nil
+}
+
+func (m *MockUserRepository) GetBlockerIDs(userID uint) ([]uint, error) {
+	return []uint{}, nil
+}
+
 // Tests for UserService
 
 func TestIsUsernameAvailable(t *testing.T) {
