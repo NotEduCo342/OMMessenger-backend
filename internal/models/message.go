@@ -68,39 +68,64 @@ type Message struct {
 }
 
 type MessageResponse struct {
-	ID            uint          `json:"id"`
-	ClientID      string        `json:"client_id"`
-	SenderID      uint          `json:"sender_id"`
-	Sender        UserResponse  `json:"sender"`
-	RecipientID   *uint         `json:"recipient_id"`
-	GroupID       *uint         `json:"group_id"`
-	Content       string        `json:"content"`
-	MessageType   MessageType   `json:"message_type"`
-	Status        MessageStatus `json:"status"`
-	IsDelivered   bool          `json:"is_delivered"`
-	IsRead        bool          `json:"is_read"`
-	Version       int           `json:"version"`
-	CreatedAt     time.Time     `json:"created_at"`
-	CreatedAtUnix int64         `json:"created_at_unix"`
-	RecipientBlocked bool       `json:"recipient_blocked"`
+	ID               uint             `json:"id"`
+	ClientID         string           `json:"client_id"`
+	SenderID         uint             `json:"sender_id"`
+	Sender           UserResponse     `json:"sender"`
+	RecipientID      *uint            `json:"recipient_id"`
+	GroupID          *uint            `json:"group_id"`
+	Content          string           `json:"content"`
+	MessageType      MessageType      `json:"message_type"`
+	Status           MessageStatus    `json:"status"`
+	IsDelivered      bool             `json:"is_delivered"`
+	IsRead           bool             `json:"is_read"`
+	Version          int              `json:"version"`
+	CreatedAt        time.Time        `json:"created_at"`
+	CreatedAtUnix    int64            `json:"created_at_unix"`
+	RecipientBlocked bool             `json:"recipient_blocked"`
+	ReplyToID        *uint            `json:"reply_to_id"`
+	ReplyTo          *MessageResponse `json:"reply_to,omitempty"`
 }
 
 func (m *Message) ToResponse() MessageResponse {
+	var replyToResp *MessageResponse
+	if m.ReplyTo != nil {
+		r := MessageResponse{
+			ID:            m.ReplyTo.ID,
+			ClientID:      m.ReplyTo.ClientID,
+			SenderID:      m.ReplyTo.SenderID,
+			Sender:        m.ReplyTo.Sender.ToResponse(),
+			RecipientID:   m.ReplyTo.RecipientID,
+			GroupID:       m.ReplyTo.GroupID,
+			Content:       m.ReplyTo.Content,
+			MessageType:   m.ReplyTo.MessageType,
+			Status:        m.ReplyTo.Status,
+			IsDelivered:   m.ReplyTo.IsDelivered,
+			IsRead:        m.ReplyTo.IsRead,
+			Version:       m.ReplyTo.Version,
+			CreatedAt:     m.ReplyTo.CreatedAt,
+			CreatedAtUnix: m.ReplyTo.CreatedAt.UTC().Unix(),
+		}
+		replyToResp = &r
+	}
+
 	return MessageResponse{
-		ID:            m.ID,
-		ClientID:      m.ClientID,
-		SenderID:      m.SenderID,
-		Sender:        m.Sender.ToResponse(),
-		RecipientID:   m.RecipientID,
-		GroupID:       m.GroupID,
-		Content:       m.Content,
-		MessageType:   m.MessageType,
-		Status:        m.Status,
-		IsDelivered:   m.IsDelivered,
-		IsRead:        m.IsRead,
-		Version:       m.Version,
-		CreatedAt:     m.CreatedAt,
-		CreatedAtUnix: m.CreatedAt.UTC().Unix(),
+		ID:               m.ID,
+		ClientID:         m.ClientID,
+		SenderID:         m.SenderID,
+		Sender:           m.Sender.ToResponse(),
+		RecipientID:      m.RecipientID,
+		GroupID:          m.GroupID,
+		Content:          m.Content,
+		MessageType:      m.MessageType,
+		Status:           m.Status,
+		IsDelivered:      m.IsDelivered,
+		IsRead:           m.IsRead,
+		Version:          m.Version,
+		CreatedAt:        m.CreatedAt,
+		CreatedAtUnix:    m.CreatedAt.UTC().Unix(),
 		RecipientBlocked: m.RecipientBlocked,
+		ReplyToID:        m.ReplyToID,
+		ReplyTo:          replyToResp,
 	}
 }
