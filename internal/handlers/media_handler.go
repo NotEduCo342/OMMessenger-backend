@@ -77,6 +77,10 @@ func (h *MediaHandler) GetMedia(c *fiber.Ctx) error {
 	}
 
 	c.Set("Cache-Control", "private, max-age=31536000, immutable")
+	c.Set("X-Content-Type-Options", "nosniff")
+	// Prevent script execution and limit context if the file is opened directly in browser
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+
 	if st.ContentType != "" {
 		c.Type(st.ContentType)
 	} else {
@@ -143,7 +147,19 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 		return httpx.Internal(c, "path_error")
 	}
 
-	_, err = h.s3.PutObject(c.Context(), key, f, fileHeader.Size, fileHeader.Header.Get("Content-Type"))
+	contentType := fileHeader.Header.Get("Content-Type")
+	// Sanitize content type to prevent Stored XSS
+	switch contentType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp",
+		"video/mp4", "video/webm",
+		"audio/mpeg", "audio/ogg", "audio/wav",
+		"application/pdf":
+		// Allowed types
+	default:
+		contentType = "application/octet-stream"
+	}
+
+	_, err = h.s3.PutObject(c.Context(), key, f, fileHeader.Size, contentType)
 	if err != nil {
 		log.Printf("[media] attachment upload error key=%q err=%v", key, err)
 		return httpx.Internal(c, "attachment_upload_failed")

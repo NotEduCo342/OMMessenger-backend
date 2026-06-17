@@ -1,0 +1,6 @@
+## 2025-03-08 - Media Handler Stored XSS Prevention
+**Vulnerability:** The application allowed file attachments to be uploaded and served natively from S3 without strict validation of the `Content-Type`. This enabled a potential stored XSS vector, where an attacker could upload an `.html` file containing malicious JS, and when directly loaded via the `/media/*` endpoint, the browser would execute it.
+**Learning:** Fiber automatically sets content type headers via `c.Type(st.ContentType)` in the `GetMedia` handler based on S3 object stats. If we trust user-uploaded `Content-Type` during the S3 `PutObject` phase without any whitelisting, S3 and Fiber will faithfully return dangerous MIME types (like `text/html`).
+**Prevention:**
+1. At the API route responsible for serving media, ALWAYS apply defense-in-depth headers like `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`.
+2. When parsing incoming multipart form data, strictly whitelist `fileHeader.Header.Get("Content-Type")`. Only permit inherently safe media formats (like `image/jpeg`, `application/pdf`, `video/mp4`, etc.) and explicitly default to `application/octet-stream` for all unknown types before storage.
