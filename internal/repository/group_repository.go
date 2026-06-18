@@ -66,12 +66,12 @@ func (r *GroupRepository) GetMembers(groupID uint) ([]models.User, error) {
 
 func (r *GroupRepository) IsMember(groupID, userID uint) (bool, error) {
 	var dummy int
-	// Optimization: Use Select("1").Limit(1) instead of Count() to fast-fail on exist checks
+	// Optimization: Use Select("1").Limit(1).Scan(&dummy) instead of Count() to fast-fail on exist checks
 	err := r.db.Model(&models.GroupMember{}).
 		Select("1").
 		Where("group_id = ? AND user_id = ?", groupID, userID).
 		Limit(1).
-		Find(&dummy).Error
+		Scan(&dummy).Error
 	return dummy == 1, err
 }
 

@@ -37,14 +37,14 @@ type User struct {
 }
 
 type UserResponse struct {
-	ID       uint       `json:"id"`
-	Username string     `json:"username"`
-	Email    string     `json:"email"`
-	FullName string     `json:"full_name"`
-	Avatar   string     `json:"avatar"`
-	Role     string     `json:"role"`
-	IsOnline bool       `json:"is_online"`
-	LastSeen *time.Time `json:"last_seen"`
+	ID        uint       `json:"id"`
+	Username  string     `json:"username"`
+	Email     string     `json:"email"`
+	FullName  string     `json:"full_name"`
+	Avatar    string     `json:"avatar"`
+	Role      string     `json:"role"`
+	IsOnline  bool       `json:"is_online"`
+	LastSeen  *time.Time `json:"last_seen"`
 	IsBlocked bool       `json:"is_blocked"`
 }
 
