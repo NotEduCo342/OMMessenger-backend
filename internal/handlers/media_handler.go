@@ -76,6 +76,10 @@ func (h *MediaHandler) GetMedia(c *fiber.Ctx) error {
 		c.Set("Last-Modified", st.LastModified.UTC().Format(time.RFC1123))
 	}
 
+	// Defense-in-depth security headers to prevent Stored XSS
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+
 	c.Set("Cache-Control", "private, max-age=31536000, immutable")
 	if st.ContentType != "" {
 		c.Type(st.ContentType)
@@ -129,6 +133,31 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 		return httpx.BadRequest(c, "invalid_attachment", "Invalid attachment upload")
 	}
 	defer f.Close()
+
+	// Whitelist Content-Types to prevent Stored XSS
+	contentType := fileHeader.Header.Get("Content-Type")
+	isAllowed := false
+	allowedTypes := []string{
+		"image/jpeg",
+		"image/png",
+		"image/gif",
+		"image/webp",
+		"video/mp4",
+		"video/webm",
+		"audio/mpeg",
+		"audio/ogg",
+	}
+	for _, t := range allowedTypes {
+		if contentType == t {
+			isAllowed = true
+			break
+		}
+	}
+	if !isAllowed {
+		// Log the security concern
+		log.Printf("[security] Stored XSS prevention: Blocked upload of unsupported content type: %q", contentType)
+		return httpx.BadRequest(c, "unsupported_media_type", "Unsupported media type")
+	}
 
 	ext := ""
 	if idx := strings.LastIndex(fileHeader.Filename, "."); idx >= 0 {
