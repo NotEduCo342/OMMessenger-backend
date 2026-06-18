@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -130,9 +131,34 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
+	// Read first 512 bytes to detect content type
+	headerBuf := make([]byte, 512)
+	n, err := io.ReadFull(f, headerBuf)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return httpx.BadRequest(c, "invalid_attachment", "Failed to read attachment")
+	}
+
+	contentType := http.DetectContentType(headerBuf[:n])
+
+	// Block dangerous file types that could execute XSS
+	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "text/javascript") || strings.Contains(contentType, "image/svg+xml") || strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
+		return httpx.BadRequest(c, "invalid_file_type", "File type not allowed for security reasons")
+	}
+
+	// Rewind the file back to the beginning
+	if seeker, ok := f.(io.Seeker); ok {
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			return httpx.Internal(c, "attachment_upload_failed")
+		}
+	} else {
+		// If we can't seek, we must reject it since we read some bytes.
+		// multipart.File should support io.Seeker
+		return httpx.Internal(c, "attachment_upload_failed")
+	}
+
 	ext := ""
 	if idx := strings.LastIndex(fileHeader.Filename, "."); idx >= 0 {
-		ext = fileHeader.Filename[idx:]
+		ext = strings.ToLower(fileHeader.Filename[idx:])
 	}
 	
 	// We need github.com/google/uuid for this, I'll add the import via a multi_replace later if missing.
@@ -143,7 +169,7 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 		return httpx.Internal(c, "path_error")
 	}
 
-	_, err = h.s3.PutObject(c.Context(), key, f, fileHeader.Size, fileHeader.Header.Get("Content-Type"))
+	_, err = h.s3.PutObject(c.Context(), key, f, fileHeader.Size, contentType)
 	if err != nil {
 		log.Printf("[media] attachment upload error key=%q err=%v", key, err)
 		return httpx.Internal(c, "attachment_upload_failed")

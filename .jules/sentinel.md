@@ -1,0 +1,4 @@
+## 2025-02-14 - Prevent Stored XSS in Attachment Uploads
+**Vulnerability:** The `/media/attachments` upload endpoint trusted the user-provided `Content-Type` header and passed it directly to S3. This allowed an attacker to upload malicious HTML/JS files while claiming they were safe, leading to Stored XSS if accessed directly via the media GET endpoint.
+**Learning:** File uploads must never trust client-provided MIME types. Minio/S3 will echo back whatever Content-Type was set during `PutObject`.
+**Prevention:** Always use `http.DetectContentType` on the first 512 bytes of the file to determine the true MIME type. Explicitly block dangerous types like `text/html`, `image/svg+xml`, and `text/javascript` before saving, and ensure the stream is safely rewound using `io.Seeker` before the final upload.
