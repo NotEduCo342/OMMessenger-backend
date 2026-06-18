@@ -97,6 +97,16 @@ func (m *MockGroupRepository) GetMembers(groupID uint) ([]models.User, error) {
 	return users, nil
 }
 
+func (m *MockGroupRepository) GetMemberIDs(groupID uint) ([]uint, error) {
+	memberIDs := []uint{}
+	if groupMembers, ok := m.memberships[groupID]; ok {
+		for uid := range groupMembers {
+			memberIDs = append(memberIDs, uid)
+		}
+	}
+	return memberIDs, nil
+}
+
 func (m *MockGroupRepository) IsMember(groupID, userID uint) (bool, error) {
 	if gm, ok := m.memberships[groupID]; ok {
 		_, ok := gm[userID]

@@ -68,6 +68,7 @@ type GroupRepositoryInterface interface {
 	AddMember(groupID, userID uint, role models.GroupRole) error
 	RemoveMember(groupID, userID uint) error
 	GetMembers(groupID uint) ([]models.User, error)
+	GetMemberIDs(groupID uint) ([]uint, error)
 	IsMember(groupID, userID uint) (bool, error)
 	GetMemberRole(groupID, userID uint) (models.GroupRole, error)
 	GetUserGroups(userID uint) ([]models.Group, error)

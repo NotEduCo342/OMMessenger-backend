@@ -272,6 +272,10 @@ func (s *GroupService) GetGroupMembers(groupID uint) ([]models.User, error) {
 	return s.groupRepo.GetMembers(groupID)
 }
 
+func (s *GroupService) GetGroupMemberIDs(groupID uint) ([]uint, error) {
+	return s.groupRepo.GetMemberIDs(groupID)
+}
+
 func (s *GroupService) GetUserGroups(userID uint) ([]models.Group, error) {
 	return s.groupRepo.GetUserGroups(userID)
 }

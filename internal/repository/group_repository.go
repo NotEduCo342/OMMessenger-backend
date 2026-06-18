@@ -64,6 +64,14 @@ func (r *GroupRepository) GetMembers(groupID uint) ([]models.User, error) {
 	return members, err
 }
 
+func (r *GroupRepository) GetMemberIDs(groupID uint) ([]uint, error) {
+	var memberIDs []uint
+	err := r.db.Model(&models.GroupMember{}).
+		Where("group_id = ?", groupID).
+		Pluck("user_id", &memberIDs).Error
+	return memberIDs, err
+}
+
 func (r *GroupRepository) IsMember(groupID, userID uint) (bool, error) {
 	var dummy int
 	// Optimization: Use Select("1").Limit(1) instead of Count() to fast-fail on exist checks
