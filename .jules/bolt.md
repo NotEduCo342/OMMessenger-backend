@@ -1,3 +1,3 @@
-## 2024-05-19 - Fast Exists Query in GORM
-**Learning:** Using `Count(&count)` in GORM for an existence check evaluates the entire table/index, whereas `.Select("1").Limit(1).Find(&dummy)` will fail fast and return instantly once a match is found, improving performance on large tables.
-**Action:** When evaluating whether a row exists or a condition is true, utilize the `.Select("1").Limit(1).Find(&dummy)` pattern over `Count()`.
+## 2024-02-12 - GORM Existence Checks
+**Learning:** When performing existence checks in GORM, avoid using `.Count()`, which triggers full table or index scans. Instead, use `.Select("1").Limit(1).Scan(&dummy)`. Furthermore, when reading a scalar value into a primitive type (like `int` for `dummy`), strictly use `.Scan(&dummy)`. Using `.Find(&dummy)` will result in an `ErrUnsupportedDestination` runtime error, as `.Find()` expects a struct or slice of structs.
+**Action:** Replace `Count()` with `Select("1").Limit(1).Scan(&dummy)` for existence checks, and double-check that `.Scan` is used instead of `.Find` when reading primitives.
