@@ -77,6 +77,8 @@ func (h *MediaHandler) GetMedia(c *fiber.Ctx) error {
 	}
 
 	c.Set("Cache-Control", "private, max-age=31536000, immutable")
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	if st.ContentType != "" {
 		c.Type(st.ContentType)
 	} else {
@@ -122,6 +124,19 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 	fileHeader, err := c.FormFile("attachment")
 	if err != nil {
 		return httpx.BadRequest(c, "missing_attachment", "attachment file is required")
+	}
+
+	// Validate Content-Type
+	contentType := fileHeader.Header.Get("Content-Type")
+	allowedMediaTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/webp": true,
+		"image/gif":  true,
+		"video/mp4":  true,
+	}
+	if !allowedMediaTypes[contentType] {
+		return httpx.BadRequest(c, "invalid_attachment_type", "Unsupported media type")
 	}
 
 	f, err := fileHeader.Open()
