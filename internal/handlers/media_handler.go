@@ -134,7 +134,7 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 	if idx := strings.LastIndex(fileHeader.Filename, "."); idx >= 0 {
 		ext = fileHeader.Filename[idx:]
 	}
-	
+
 	// We need github.com/google/uuid for this, I'll add the import via a multi_replace later if missing.
 	// For now let's just use strconv.FormatInt(time.Now().UnixNano(), 10) to avoid importing uuid directly here if not easy.
 	fileName := strconv.FormatInt(time.Now().UnixNano(), 10) + ext
