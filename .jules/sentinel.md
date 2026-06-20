@@ -1,0 +1,4 @@
+## 2025-02-23 - Prevent Stored XSS via File Uploads
+**Vulnerability:** Stored XSS was possible via file uploads on the media handler endpoints. Uploaded files did not have their Content-Types strict-validated or whitelisted during storage, and the retrieval endpoints did not enforce defense-in-depth security headers like `X-Content-Type-Options: nosniff` or Content Security Policy (CSP).
+**Learning:** Content-Type provided by clients cannot be trusted. By storing the untrusted Content-Type alongside the object without strict validation, it was possible for malicious files to be returned with executable contexts (e.g. text/html) to downstream clients.
+**Prevention:** Apply strict whitelisting to the `Content-Type` during the upload phase, mapping any non-compliant uploads to `application/octet-stream`. Ensure download endpoints emit explicit `X-Content-Type-Options: nosniff` and tight `Content-Security-Policy: default-src 'none'; sandbox` headers.
