@@ -1,0 +1,4 @@
+## 2025-02-14 - Predictable Filenames & Stored XSS via File Uploads
+**Vulnerability:** User uploads used predictable timestamp-based names (`time.Now().UnixNano()`) and allowed arbitrary `Content-Type` pass-through to S3. Additionally, downloads lacked defense-in-depth security headers.
+**Learning:** Even if client-provided files are served back safely, relying on weak timestamp generators facilitates predictable filename enumeration/overwriting. Permitting any `Content-Type` sets up Stored XSS vectors unless strictly mitigated on output.
+**Prevention:** Always use cryptographically secure random values (`uuid.NewString()`) for internally generated filenames. Implement a strict allowed list for `Content-Type` during upload, and use `X-Content-Type-Options: nosniff` alongside a restrictive `Content-Security-Policy` (`default-src 'none'; sandbox`) on file download endpoints.
