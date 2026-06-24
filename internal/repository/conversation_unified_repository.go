@@ -258,5 +258,4 @@ LIMIT ?
 	return rows, nil
 }
 
-
 var _ = gorm.ErrRecordNotFound
