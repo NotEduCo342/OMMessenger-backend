@@ -172,7 +172,6 @@ func (h *GroupHandler) CheckHandle(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"available": available})
 }
 
-
 type AddMemberRequest struct {
 	UserID uint `json:"user_id"`
 }

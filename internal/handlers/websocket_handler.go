@@ -56,7 +56,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *websocket.Conn) {
 		if err := h.userService.SetUserOnline(userID); err != nil {
 			log.Printf("Failed to set user %d online in DB: %v", userID, err)
 		}
-		
+
 		excludeMap := make(map[uint]bool)
 		blockedByMe, blockedByPeer, err := h.userService.GetBlockMaps(userID)
 		if err == nil {
