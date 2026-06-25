@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/noteduco342/OMMessenger-backend/internal/httpx"
 	"github.com/noteduco342/OMMessenger-backend/internal/storage"
@@ -77,6 +78,9 @@ func (h *MediaHandler) GetMedia(c *fiber.Ctx) error {
 	}
 
 	c.Set("Cache-Control", "private, max-age=31536000, immutable")
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+
 	if st.ContentType != "" {
 		c.Type(st.ContentType)
 	} else {
@@ -124,6 +128,15 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 		return httpx.BadRequest(c, "missing_attachment", "attachment file is required")
 	}
 
+	contentType := fileHeader.Header.Get("Content-Type")
+	// Enforce strict content-type whitelist to prevent Stored XSS
+	if !strings.HasPrefix(contentType, "image/") &&
+		!strings.HasPrefix(contentType, "video/") &&
+		!strings.HasPrefix(contentType, "audio/") &&
+		contentType != "application/pdf" {
+		return httpx.BadRequest(c, "invalid_content_type", "Invalid attachment content type")
+	}
+
 	f, err := fileHeader.Open()
 	if err != nil {
 		return httpx.BadRequest(c, "invalid_attachment", "Invalid attachment upload")
@@ -134,10 +147,9 @@ func (h *MediaHandler) UploadAttachment(c *fiber.Ctx) error {
 	if idx := strings.LastIndex(fileHeader.Filename, "."); idx >= 0 {
 		ext = fileHeader.Filename[idx:]
 	}
-	
-	// We need github.com/google/uuid for this, I'll add the import via a multi_replace later if missing.
-	// For now let's just use strconv.FormatInt(time.Now().UnixNano(), 10) to avoid importing uuid directly here if not easy.
-	fileName := strconv.FormatInt(time.Now().UnixNano(), 10) + ext
+
+	// Use uuid to avoid predictable filenames, file enumeration, and overwrites.
+	fileName := uuid.NewString() + ext
 	key, err := storage.SafeJoinAvatarPath("attachments", fileName)
 	if err != nil {
 		return httpx.Internal(c, "path_error")
