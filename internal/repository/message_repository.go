@@ -320,28 +320,33 @@ func (r *MessageRepository) GetLatestGroupMessageID(groupID uint) (uint, error) 
 // IsMessageInGroup checks whether a message belongs to a group
 func (r *MessageRepository) IsMessageInGroup(messageID uint, groupID uint) (bool, error) {
 	var dummy int
-	// Optimization: Use Select("1").Limit(1) instead of Count() to fast-fail on exist checks
+	// Optimization: Use Select("1").Limit(1).Scan() instead of Count() to fast-fail on exist checks
 	err := r.db.Model(&models.Message{}).
 		Select("1").
 		Where("id = ? AND group_id = ?", messageID, groupID).
 		Limit(1).
-		Find(&dummy).Error
+		Scan(&dummy).Error
 	return dummy == 1, err
 }
 
 func (r *MessageRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
-	var count int64
+	var dummy int
+	// Optimization: Use Select("1").Limit(1).Scan() instead of Count() to fast-fail on exist checks
 	err := r.db.Table("blocks").
+		Select("1").
 		Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", userID1, userID2, userID2, userID1).
-		Count(&count).Error
-	return count > 0, err
+		Limit(1).
+		Scan(&dummy).Error
+	return dummy == 1, err
 }
 
 func (r *MessageRepository) IsBlockedBy(blockerID, blockedID uint) (bool, error) {
-	var count int64
+	var dummy int
+	// Optimization: Use Select("1").Limit(1).Scan() instead of Count() to fast-fail on exist checks
 	err := r.db.Table("blocks").
+		Select("1").
 		Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).
-		Count(&count).Error
-	return count > 0, err
+		Limit(1).
+		Scan(&dummy).Error
+	return dummy == 1, err
 }
-
