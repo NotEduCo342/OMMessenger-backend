@@ -75,19 +75,25 @@ func (r *UserRepository) UnblockUser(blockerID, blockedID uint) error {
 }
 
 func (r *UserRepository) IsBlocked(userID1, userID2 uint) (bool, error) {
-	var count int64
+	var dummy int
+	// Optimization: Use Select("1").Limit(1).Scan() instead of Count() to fail fast when checking for existence
 	err := r.db.Model(&models.Block{}).
+		Select("1").
 		Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", userID1, userID2, userID2, userID1).
-		Count(&count).Error
-	return count > 0, err
+		Limit(1).
+		Scan(&dummy).Error
+	return dummy > 0, err
 }
 
 func (r *UserRepository) IsBlocker(blockerID, blockedID uint) (bool, error) {
-	var count int64
+	var dummy int
+	// Optimization: Use Select("1").Limit(1).Scan() instead of Count() to fail fast when checking for existence
 	err := r.db.Model(&models.Block{}).
+		Select("1").
 		Where("blocker_id = ? AND blocked_id = ?", blockerID, blockedID).
-		Count(&count).Error
-	return count > 0, err
+		Limit(1).
+		Scan(&dummy).Error
+	return dummy > 0, err
 }
 
 func (r *UserRepository) GetBlockedUsers(userID uint) ([]models.User, error) {
@@ -115,4 +121,3 @@ func (r *UserRepository) GetBlockerIDs(userID uint) ([]uint, error) {
 		Pluck("blocker_id", &ids).Error
 	return ids, err
 }
-
