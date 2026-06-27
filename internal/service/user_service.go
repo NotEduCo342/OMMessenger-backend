@@ -189,4 +189,3 @@ func (s *UserService) GetBlockMaps(userID uint) (blockedByMe map[uint]bool, bloc
 
 	return blockedByMe, blockedByPeer, nil
 }
-

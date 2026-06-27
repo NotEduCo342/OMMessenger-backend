@@ -42,3 +42,4 @@ Thumbs.db
 *.sqlite
 om-mobile/
 minio-storage/
+cmd/server/server
