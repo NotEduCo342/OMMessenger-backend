@@ -104,7 +104,7 @@ func (s *MessageService) EditMessage(userID uint, messageID uint, newContent str
 	}
 	message.Content = newContent
 	message.Version++
-	
+
 	if err := s.messageRepo.Update(message); err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (s *MessageService) DeleteMessage(userID uint, messageID uint) (*models.Mes
 	if message.SenderID != userID {
 		return nil, fmt.Errorf("unauthorized to delete this message")
 	}
-	
+
 	if err := s.messageRepo.Delete(messageID); err != nil {
 		return nil, err
 	}

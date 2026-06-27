@@ -1,0 +1,4 @@
+## 2025-02-24 - Fix Stored XSS and Insecure File Uploads in Media Handler
+**Vulnerability:** The application allowed arbitrary file uploads and served them without security headers. User-uploaded files were also named using predictable timestamps, which could lead to file enumeration and overwrites.
+**Learning:** Preventing Stored XSS requires both strict `Content-Type` whitelisting during upload and defense-in-depth security headers (`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`) when serving files. Predictable filenames (like timestamps) are insecure; cryptographically secure UUIDs should always be used.
+**Prevention:** Always validate and whitelist the `Content-Type` of uploaded files. When serving user-generated content, strictly enforce defense-in-depth headers. Use `uuid.NewString()` for file naming instead of predictable timestamps.

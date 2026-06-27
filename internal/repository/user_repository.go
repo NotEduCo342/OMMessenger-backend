@@ -115,4 +115,3 @@ func (r *UserRepository) GetBlockerIDs(userID uint) ([]uint, error) {
 		Pluck("blocker_id", &ids).Error
 	return ids, err
 }
-
