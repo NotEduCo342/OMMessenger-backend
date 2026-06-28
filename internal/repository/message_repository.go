@@ -344,4 +344,3 @@ func (r *MessageRepository) IsBlockedBy(blockerID, blockedID uint) (bool, error)
 		Count(&count).Error
 	return count > 0, err
 }
-
