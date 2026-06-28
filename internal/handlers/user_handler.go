@@ -285,4 +285,3 @@ func (h *UserHandler) GetBlockList(c *fiber.Ctx) error {
 		"count": len(responses),
 	})
 }
-
