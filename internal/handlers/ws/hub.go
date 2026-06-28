@@ -502,4 +502,3 @@ func (h *Hub) compressData(data []byte) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
